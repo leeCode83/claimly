@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
   try {
     // Mengambil email dan password dari request body
     const body = await request.json();
-    const { email, password } = body;
+    const { email, password, full_name, role, institution_id } = body;
 
     // Validasi input
     if (!email || !password) {
@@ -19,6 +19,13 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+            full_name,
+            role,
+            institution_id
+        }
+      }
     });
 
     // Jika terjadi error dari Supabase (misal email sudah terdaftar atau password kurang kuat)
