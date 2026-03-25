@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/supabase-config';
+import { getSupabaseServer } from '@/supabase-config';
 
 export async function POST(request: Request) {
   try {
+    // Inisialisasi Supabase client (akan otomatis mendaftar sebagai anonim jika belum login)
+    const { supabase } = await getSupabaseServer(request);
+
     // Mengambil email dan password dari request body
     const body = await request.json();
     const { email, password } = body;
