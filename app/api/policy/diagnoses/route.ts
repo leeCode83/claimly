@@ -2,23 +2,37 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 
 /**
- * Logika Encoder ICD-10 sesuai spesifikasi:
- * Huruf pertama (A=1, B=2...) * 10000
- * Dua digit berikutnya * 100
- * Jika tidak ada desimal: + 0
- * Jika ada desimal: + (digit desimal + 1)
+ * Logika Encoder ICD-10 telah diperbarui untuk mendukung multi-digit desimal:
+ * Huruf pertama (A=1, B=2...) * 1000000
+ * Dua digit berikutnya * 10000
+ * Desimal didukung hingga panjang tak terhingga dan di-encode secara unik (1 digit +1, 2 digit +11, dst)
  */
 function encodeICD10(code: string): number | null {
-    const match = code.toUpperCase().match(/^([A-Z])(\d{2})(\.(\d))?$/);
+    // Regex diperbarui untuk mendukung lebih dari 1 digit setelah titik (contoh: M00.00)
+    const match = code.toUpperCase().match(/^([A-Z])(\d{2})(?:\.(\d+))?$/);
     if (!match) return null;
 
     const letter = match[1];
-    const digits = parseInt(match[2]);
-    const hasDecimal = match[3] !== undefined;
-    const decimal = hasDecimal ? parseInt(match[4]) : 0;
+    const digits = parseInt(match[2], 10);
+    const decStr = match[3];
+
+    let decVal = 0;
+    if (decStr !== undefined) {
+        const parsedDec = parseInt(decStr, 10);
+        if (decStr.length === 1) {
+            decVal = parsedDec + 1;
+        } else if (decStr.length === 2) {
+            decVal = parsedDec + 11;
+        } else if (decStr.length === 3) {
+            decVal = parsedDec + 111;
+        } else {
+            decVal = parsedDec + 1111;
+        }
+    }
 
     const charPos = letter.charCodeAt(0) - 64; // A=65, maka 65-64=1
-    return (charPos * 10000) + (digits * 100) + (hasDecimal ? (decimal + 1) : 0);
+    // Pengali dibesarkan menjadi 1.000.000 agar nilai desimal yang bisa mencapai > 100 tidak bentrok dengan nilai `digits * 100`
+    return (charPos * 1000000) + (digits * 10000) + decVal;
 }
 
 export async function POST(request: NextRequest) {
@@ -46,7 +60,7 @@ export async function POST(request: NextRequest) {
         
         if (icd10_integer_encoding === null) {
             return NextResponse.json(
-                { error: "Format icd10_code tidak valid (Contoh: K35, K35.1, A01.0)" },
+                { error: "Format icd10_code tidak valid (Contoh: K35, K35.1, M00.00)" },
                 { status: 400 }
             );
         }

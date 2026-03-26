@@ -51,7 +51,7 @@ function encodeICD9(code: string): number | null {
 }
 
 // Fungsi sederhana untuk parsing CSV yang mendukung quotes
-function parseCSV(csvText: string) {
+function parseCSV(csvText: string, delimiter: string = ',') {
     const rows: string[][] = [];
     let currentRow: string[] = [];
     let currentCell = '';
@@ -73,7 +73,7 @@ function parseCSV(csvText: string) {
         } else {
             if (char === '"') {
                 inQuotes = true;
-            } else if (char === ',') {
+            } else if (char === delimiter) {
                 currentRow.push(currentCell.trim());
                 currentCell = '';
             } else if (char === '\n' || char === '\r') {
@@ -132,7 +132,15 @@ export async function POST(request: NextRequest) {
         const fallbackCoverage = fallbackCoverageStr ? parseFloat(fallbackCoverageStr) : null;
 
         const fileText = await file.text();
-        const rows = parseCSV(fileText);
+        
+        // Deteksi delimiter (koma atau titik koma) berdasarkan baris pertama
+        const firstLineEnd = fileText.indexOf('\n');
+        const firstLine = firstLineEnd !== -1 ? fileText.substring(0, firstLineEnd) : fileText;
+        const semicolonCount = (firstLine.match(/;/g) || []).length;
+        const commaCount = (firstLine.match(/,/g) || []).length;
+        const delimiter = semicolonCount > commaCount ? ';' : ',';
+        
+        const rows = parseCSV(fileText, delimiter);
 
         if (rows.length < 2) {
             return NextResponse.json(
@@ -231,10 +239,9 @@ export async function POST(request: NextRequest) {
         }
 
         // Bulk upsert ke tabel procedures
-        const { data, error } = await supabase
+        const { error } = await supabase
             .from('procedures')
-            .upsert(validDataToInsert, { onConflict: 'icd9_integer_encoding' }) // Gunakan tipe upsert demi menghindari duplicate index crash
-            .select();
+            .upsert(validDataToInsert, { onConflict: 'icd9_integer_encoding' }); // Gunakan tipe upsert demi menghindari duplicate index crash
 
         if (error) {
             return NextResponse.json({ error: error.message }, { status: 400 });
@@ -244,8 +251,7 @@ export async function POST(request: NextRequest) {
             message: `Berhasil menambahkan ${validDataToInsert.length} prosedur secara batch`,
             inserted_count: validDataToInsert.length,
             invalid_count: invalidRows.length,
-            invalid_rows: invalidRows,
-            data: data
+            invalid_rows: invalidRows
         }, { status: 201 });
 
     } catch (err: any) {
