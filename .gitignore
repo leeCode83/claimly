@@ -41,3 +41,13 @@ yarn-error.log*
 next-env.d.ts
 
 icd*.csv
+zkp-artifacts/
+
+# ZKP Artifacts & Proofs
+*.wasm
+*.zkey
+*.ptau
+*.wtns
+proof.json
+public.json
+verification_key.json
