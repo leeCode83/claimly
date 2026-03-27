@@ -266,6 +266,56 @@ export class ClaimService {
     }
 
     async approveClaim(claimId: string, reviewerId: string, reviewNotes?: string) {
+        // Fetch claim with proof for validation
+        const { data: claim, error: fetchError } = await this.supabase
+            .from('claims')
+            .select('*, zkp_proofs(*)')
+            .eq('id', claimId)
+            .single();
+
+        if (fetchError || !claim) {
+            const err: any = new Error("Klaim tidak ditemukan");
+            err.status = 404;
+            throw err;
+        }
+
+        const zkpProof = (claim as any).zkp_proofs;
+        if (!zkpProof) {
+            const err: any = new Error("Klaim tidak dapat disetujui tanpa ZKP proof");
+            err.status = 400;
+            throw err;
+        }
+
+        // Auto-verify if null
+        let isValid = zkpProof.verification_result;
+        if (isValid === null) {
+            try {
+                const result = await verifyProof({
+                    proof: zkpProof.proof_json,
+                    publicSignals: zkpProof.public_signals
+                });
+                isValid = result.isValid;
+
+                await this.supabase
+                    .from('zkp_proofs')
+                    .update({
+                        verification_result: isValid,
+                        verified_at: new Date().toISOString()
+                    })
+                    .eq('id', zkpProof.id);
+            } catch (vErr: any) {
+                const err: any = new Error(`Gagal memverifikasi ZKP proof: ${vErr.message}`);
+                err.status = 500;
+                throw err;
+            }
+        }
+
+        if (!isValid) {
+            const err: any = new Error("Klaim tidak dapat disetujui: ZKP proof tidak valid (verifikasi gagal)");
+            err.status = 400;
+            throw err;
+        }
+
         const { error } = await this.supabase.rpc('approve_claim', {
             p_claim_id: claimId,
             p_reviewer_id: reviewerId,
