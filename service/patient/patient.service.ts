@@ -5,6 +5,17 @@ function hashNIK(nik: string): string {
     return createHash('sha256').update(nik).digest('hex');
 }
 
+function generatePolicyCommitment(
+    patientId: string,
+    policyId: string,
+    policyNumber: string,
+    startDate: string
+): string {
+    return createHash('sha256')
+        .update(`${patientId}${policyId}${policyNumber}${startDate}`)
+        .digest('hex');
+}
+
 export class PatientService {
     constructor(private supabase: SupabaseClient) {}
 
@@ -153,6 +164,90 @@ export class PatientService {
         if (error) {
             const err: any = new Error(error.message);
             err.status = 404;
+            throw err;
+        }
+
+        return data;
+    }
+
+    async createPatientPolicy(patientId: string, payload: {
+        policy_id: string,
+        policy_number: string,
+        start_date: string,
+        end_date: string
+    }) {
+        // 1. Validasi field wajib
+        if (!payload.policy_id || !payload.policy_number || !payload.start_date || !payload.end_date) {
+            const err: any = new Error("Parameter policy_id, policy_number, start_date, dan end_date wajib diisi");
+            err.status = 400;
+            throw err;
+        }
+
+        if (new Date(payload.start_date) >= new Date(payload.end_date)) {
+            const err: any = new Error("start_date harus lebih awal dari end_date");
+            err.status = 400;
+            throw err;
+        }
+
+        // 2. Verifikasi insurance_policy exist dan aktif
+        const { data: insurancePolicy, error: policyError } = await this.supabase
+            .from('insurance_policies')
+            .select('id, is_active')
+            .eq('id', payload.policy_id)
+            .single();
+
+        if (policyError || !insurancePolicy) {
+            const err: any = new Error(`Polis asuransi dengan id '${payload.policy_id}' tidak ditemukan`);
+            err.status = 404;
+            throw err;
+        }
+
+        if (!insurancePolicy.is_active) {
+            const err: any = new Error("Polis asuransi ini sudah tidak aktif dan tidak bisa digunakan");
+            err.status = 400;
+            throw err;
+        }
+
+        // 3. Cek apakah pasien sudah punya polis aktif
+        const { data: existingActive } = await this.supabase
+            .from('patient_policies')
+            .select('id')
+            .eq('patient_id', patientId)
+            .eq('is_active', true)
+            .maybeSingle();
+
+        if (existingActive) {
+            const err: any = new Error("Pasien sudah memiliki polis aktif. Nonaktifkan polis yang lama terlebih dahulu");
+            err.status = 409;
+            throw err;
+        }
+
+        // 4. Generate policy_commitment di backend — JANGAN dari input user
+        const policy_commitment = generatePolicyCommitment(
+            patientId,
+            payload.policy_id,
+            payload.policy_number,
+            payload.start_date
+        );
+
+        // 5. Insert ke patient_policies
+        const { data, error } = await this.supabase
+            .from('patient_policies')
+            .insert({
+                patient_id: patientId,
+                policy_id: payload.policy_id,
+                policy_number: payload.policy_number,
+                policy_commitment,
+                start_date: payload.start_date,
+                end_date: payload.end_date,
+                is_active: true
+            })
+            .select('*, insurance_policies(*)')
+            .single();
+
+        if (error) {
+            const err: any = new Error(error.message);
+            err.status = 400;
             throw err;
         }
 

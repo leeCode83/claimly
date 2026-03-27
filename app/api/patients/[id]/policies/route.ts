@@ -55,3 +55,45 @@ export async function GET(
         return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: err.status || 500 });
     }
 }
+
+export async function POST(
+    request: NextRequest,
+    props: { params: Promise<{ id: string }> }
+) {
+    try {
+        const { supabase, user } = await getSupabaseServer(request);
+        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+        const params = await props.params;
+        const patientId = params.id;
+
+        const userService = new UserService(supabase);
+        const patientService = new PatientService(supabase);
+
+        const requesterProfile = await userService.getMe(user.id);
+
+        // Hanya hospital_staff yang boleh mendaftarkan pasien ke polis
+        if (requesterProfile.role !== 'hospital_staff') {
+            return NextResponse.json(
+                { error: 'Forbidden: Hanya hospital_staff yang dapat mendaftarkan pasien ke polis' },
+                { status: 403 }
+            );
+        }
+
+        // Pastikan hospital_staff ini dari institusi yang mengelola pasien tersebut
+        const patient = await patientService.getPatientById(patientId);
+        const accessError = checkPatientAccess(user.id, requesterProfile, patient);
+        if (accessError) return NextResponse.json({ error: accessError }, { status: 403 });
+
+        const body = await request.json();
+        const data = await patientService.createPatientPolicy(patientId, body);
+
+        return NextResponse.json({
+            message: 'Pasien berhasil didaftarkan ke polis',
+            data
+        }, { status: 201 });
+
+    } catch (err: any) {
+        return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: err.status || 500 });
+    }
+}
