@@ -1,0 +1,125 @@
+import { SupabaseClient } from "@supabase/supabase-js";
+
+function encodeDate(dateStr: string): number {
+    return parseInt(dateStr.replace(/-/g, ''), 10);
+}
+
+export class MedicalRecordService {
+    constructor(private supabase: SupabaseClient) {}
+
+    async getMedicalRecords({ hospitalInstitutionId, patientId, page = 1, limit = 10 }: {
+        hospitalInstitutionId: string,
+        patientId?: string,
+        page?: number,
+        limit?: number
+    }) {
+        let query = this.supabase
+            .from('medical_records')
+            .select('*, diagnosis:diagnoses(*), patient:patients(*), attending_doctor:users!attending_doctor_id(id, full_name, role)', { count: 'exact' })
+            .eq('hospital_institution_id', hospitalInstitutionId);
+
+        if (patientId) {
+            query = query.eq('patient_id', patientId);
+        }
+
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+        query = query.range(from, to).order('created_at', { ascending: false });
+
+        const { data, count, error } = await query;
+
+        if (error) {
+            const err: any = new Error(error.message);
+            err.status = 500;
+            throw err;
+        }
+
+        return {
+            data,
+            meta: {
+                total: count || 0,
+                page,
+                limit,
+                total_pages: Math.ceil((count || 0) / limit)
+            }
+        };
+    }
+
+    async createMedicalRecord(payload: {
+        patient_id: string,
+        diagnosis_id: string,
+        diagnosis_date: string,
+        notes?: string
+    }, hospitalInstitutionId: string, attendingDoctorId: string) {
+        if (!payload.patient_id || !payload.diagnosis_id || !payload.diagnosis_date) {
+            const err: any = new Error("Parameter patient_id, diagnosis_id, dan diagnosis_date wajib diisi");
+            err.status = 400;
+            throw err;
+        }
+
+        const diagnosis_date_encoded = encodeDate(payload.diagnosis_date);
+
+        const { data, error } = await this.supabase
+            .from('medical_records')
+            .insert({
+                patient_id: payload.patient_id,
+                hospital_institution_id: hospitalInstitutionId,
+                diagnosis_id: payload.diagnosis_id,
+                diagnosis_date: payload.diagnosis_date,
+                diagnosis_date_encoded,
+                attending_doctor_id: attendingDoctorId,
+                notes_encrypted: payload.notes || null  // Tidak dienkripsi untuk saat ini
+            })
+            .select('*, diagnosis:diagnoses(*), patient:patients(*)')
+            .single();
+
+        if (error) {
+            const err: any = new Error(error.message);
+            err.status = 400;
+            throw err;
+        }
+
+        return data;
+    }
+
+    async getMedicalRecordById(id: string) {
+        const { data, error } = await this.supabase
+            .from('medical_records')
+            .select('*, diagnosis:diagnoses(*), patient:patients(*), attending_doctor:users!attending_doctor_id(id, full_name, role)')
+            .eq('id', id)
+            .single();
+
+        if (error) {
+            const err: any = new Error(error.message);
+            err.status = 404;
+            throw err;
+        }
+
+        return data;
+    }
+
+    async updateMedicalRecord(id: string, payload: { notes?: string }) {
+        if (!payload || payload.notes === undefined) {
+            const err: any = new Error("Tidak ada field yang bisa diupdate");
+            err.status = 400;
+            throw err;
+        }
+
+        const { data, error } = await this.supabase
+            .from('medical_records')
+            .update({
+                notes_encrypted: payload.notes  // Tidak dienkripsi untuk saat ini
+            })
+            .eq('id', id)
+            .select('*, diagnosis:diagnoses(*), patient:patients(*)')
+            .single();
+
+        if (error) {
+            const err: any = new Error(error.message);
+            err.status = 400;
+            throw err;
+        }
+
+        return data;
+    }
+}
