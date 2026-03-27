@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
+import { ProceduresService } from "@/service/procedures/procedures.service";
 
 export async function GET(
     request: NextRequest,
@@ -15,21 +16,14 @@ export async function GET(
         const params = await props.params;
         const icdCode = decodeURIComponent(params.icd);
 
-        const { data, error } = await supabase
-            .from('procedures')
-            .select()
-            .eq('icd9_code', icdCode)
-            .single();
-
-        if (error) {
-            return NextResponse.json({ error: error.message }, { status: 404 });
-        }
+        const proceduresService = new ProceduresService(supabase);
+        const data = await proceduresService.getProcedureByIcd(icdCode);
 
         return NextResponse.json({ data }, { status: 200 });
     } catch (err: any) {
         return NextResponse.json(
             { error: err.message || 'Internal Server Error' },
-            { status: 500 }
+            { status: err.status || 500 }
         );
     }
 }
@@ -50,23 +44,8 @@ export async function PATCH(
         
         const body = await request.json();
 
-        if (!body || Object.keys(body).length === 0) {
-            return NextResponse.json(
-                { error: "Body request tidak boleh kosong untuk update" },
-                { status: 400 }
-            );
-        }
-
-        const { data, error } = await supabase
-            .from('procedures')
-            .update(body)
-            .eq('icd9_code', icdCode)
-            .select()
-            .single();
-
-        if (error) {
-            return NextResponse.json({ error: error.message }, { status: 400 });
-        }
+        const proceduresService = new ProceduresService(supabase);
+        const data = await proceduresService.updateProcedureByIcd(icdCode, body);
 
         return NextResponse.json({ 
             message: "Prosedur berhasil diupdate",
@@ -76,7 +55,7 @@ export async function PATCH(
     } catch (err: any) {
         return NextResponse.json(
             { error: err.message || 'Internal Server Error' },
-            { status: 500 }
+            { status: err.status || 500 }
         );
     }
 }
@@ -95,16 +74,8 @@ export async function DELETE(
         const params = await props.params;
         const icdCode = decodeURIComponent(params.icd);
 
-        const { data, error } = await supabase
-            .from('procedures')
-            .delete()
-            .eq('icd9_code', icdCode)
-            .select()
-            .single();
-
-        if (error) {
-            return NextResponse.json({ error: error.message }, { status: 400 });
-        }
+        const proceduresService = new ProceduresService(supabase);
+        const data = await proceduresService.deleteProcedureByIcd(icdCode);
 
         return NextResponse.json({ 
             message: "Prosedur berhasil dihapus",
@@ -114,7 +85,7 @@ export async function DELETE(
     } catch (err: any) {
         return NextResponse.json(
             { error: err.message || 'Internal Server Error' },
-            { status: 500 }
+            { status: err.status || 500 }
         );
     }
 }
