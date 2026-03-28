@@ -1,5 +1,11 @@
 import { AuthService } from './auth.service';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { generateUserKeypairForServer } from '@/lib/crypto/note-crypto';
+
+// Mock crypto library
+jest.mock('@/lib/crypto/note-crypto', () => ({
+    generateUserKeypairForServer: jest.fn()
+}));
 
 describe('AuthService', () => {
     let service: AuthService;
@@ -13,6 +19,7 @@ describe('AuthService', () => {
                 signInWithPassword: jest.fn(),
                 signUp: jest.fn(),
             },
+            rpc: jest.fn().mockResolvedValue({ data: null, error: null }),
         };
 
         service = new AuthService(mockSupabase as unknown as SupabaseClient);
@@ -57,15 +64,15 @@ describe('AuthService', () => {
             await expect(service.signUp({ email: 'test@mail.com' })).rejects.toThrow('Email and password are required');
         });
 
-        it('returns user data on success', async () => {
+        it('returns user data on success for non-patient role', async () => {
              const payload = { 
                  email: 'test@mail.com', 
                  password: '123', 
-                 full_name: 'Test User',
-                 role: 'PATIENT',
+                 full_name: 'Staff User',
+                 role: 'hospital_staff',
                  institution_id: 'inst-1'
              };
-             const mockResult = { data: { user: { id: 'user-1' } }, error: null };
+             const mockResult = { data: { user: { id: 'staff-1' } }, error: null };
              mockSupabase.auth.signUp.mockResolvedValueOnce(mockResult);
 
              const result = await service.signUp(payload);
@@ -81,7 +88,44 @@ describe('AuthService', () => {
                      }
                  }
              });
+             // Should NOT trigger crypto for hospital_staff
+             expect(generateUserKeypairForServer).not.toHaveBeenCalled();
+             expect(mockSupabase.rpc).not.toHaveBeenCalled();
              expect(result).toEqual(mockResult.data);
+        });
+
+        it('generates and saves keypair for patient role', async () => {
+            const payload = { 
+                email: 'patient@mail.com', 
+                password: 'MySecurePassword', 
+                full_name: 'Budi Pasien',
+                role: 'patient'
+            };
+            
+            const mockUser = { id: 'patient-uuid' };
+            const mockResult = { data: { user: mockUser }, error: null };
+            mockSupabase.auth.signUp.mockResolvedValueOnce(mockResult);
+
+            const mockKeypair = {
+                publicKeyB64: 'pub-key',
+                encryptedPrivKeyB64: 'enc-priv-key',
+                saltB64: 'salt',
+                ivB64: 'iv'
+            };
+            (generateUserKeypairForServer as jest.Mock).mockReturnValueOnce(mockKeypair);
+
+            await service.signUp(payload);
+
+            // Verify crypto was called with plaintext password
+            expect(generateUserKeypairForServer).toHaveBeenCalledWith(payload.password);
+
+            // Verify RPC was called to save the keypair
+            expect(mockSupabase.rpc).toHaveBeenCalledWith('save_user_keypair', {
+                p_public_key:           mockKeypair.publicKeyB64,
+                p_encrypted_priv_key:   mockKeypair.encryptedPrivKeyB64,
+                p_key_derivation_salt:  mockKeypair.saltB64,
+                p_key_iv:               mockKeypair.ivB64,
+            });
         });
 
         it('throws a 400 on sign up failure', async () => {
