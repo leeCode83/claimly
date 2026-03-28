@@ -99,9 +99,7 @@ export class ProceduresService {
         }
 
         if (data?.length === 0) {
-            const err: any = new Error("Procedures data is empty");
-            err.status = 400;
-            throw err;
+            return [];
         }
 
         return data;

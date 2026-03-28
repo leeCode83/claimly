@@ -60,9 +60,10 @@ describe('ProceduresService', () => {
             await expect(service.getProcedures()).rejects.toThrow('Fetch error');
         });
 
-        it('throws a 400 error if data is empty', async () => {
+        it('returns an empty array if data is empty', async () => {
             mockSupabase.limit.mockResolvedValueOnce({ data: [], error: null });
-            await expect(service.getProcedures()).rejects.toThrow('Procedures data is empty');
+            const result = await service.getProcedures();
+            expect(result).toEqual([]);
         });
 
         it('returns procedures on success', async () => {
