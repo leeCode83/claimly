@@ -1,19 +1,31 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { createHash } from "crypto";
+import { poseidonHashArray } from "../zkp/poseidon";
 
 function hashNIK(nik: string): string {
     return createHash('sha256').update(nik).digest('hex');
 }
 
-function generatePolicyCommitment(
+function stringToFieldElement(str: string): bigint {
+    // Map string to a field element (BN254 prime field roughly 2^254)
+    // We use SHA256 hash first and then convert to BigInt to handle strings of any length
+    const hash = createHash('sha256').update(str).digest('hex');
+    return BigInt('0x' + hash) % BigInt("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+}
+
+async function generatePolicyCommitment(
     patientId: string,
     policyId: string,
     policyNumber: string,
     startDate: string
-): string {
-    return createHash('sha256')
-        .update(`${patientId}${policyId}${policyNumber}${startDate}`)
-        .digest('hex');
+): Promise<string> {
+    const inputs = [
+        stringToFieldElement(patientId),
+        stringToFieldElement(policyId),
+        stringToFieldElement(policyNumber),
+        stringToFieldElement(startDate)
+    ];
+    return poseidonHashArray(inputs);
 }
 
 export class PatientService {
@@ -223,7 +235,7 @@ export class PatientService {
         }
 
         // 4. Generate policy_commitment di backend — JANGAN dari input user
-        const policy_commitment = generatePolicyCommitment(
+        const policy_commitment = await generatePolicyCommitment(
             patientId,
             payload.policy_id,
             payload.policy_number,
