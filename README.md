@@ -71,3 +71,26 @@ Di dalam sistem Claimly, komponen yang disebut sebagai "Circuit" ZKP akan mengec
 4. **Validasi Limit Biaya:** Memastikan bahwa nominal uang yang ditagihkan tidak melampaui limit maksimum rawat/asuransi pasien.
 
 Jika semua 4 syarat *lulus*, algoritma menghasilkan sebuah file matematika rumit (**ZK Proof**). Asuransi menerima file proof ini beserta berkas jumlah tagihan. Asuransi melakukan proses "Verifikasi" atas Proof tersebut yang mutlak hanya bisa merespons **BENAR** atau **SALAH**. Segala jenis kecurangan/manipulasi data di tengah jalan otomatis membuat hasil verifikasi menjadi salah.
+
+---
+
+## 7. Manfaat Penerapan ZKP bagi Stakeholder
+
+Penerapan ZKP dalam Claimly memberikan keuntungan bagi seluruh pihak yang terlibat:
+
+*   **Bagi Pasien:** Data diagnosis medis tetap bersifat rahasia. Pasien tidak perlu khawatir riwayat penyakitnya digunakan oleh pihak asuransi untuk menaikkan premi atau diskriminasi klaim di masa depan.
+*   **Bagi Rumah Sakit:** Mengurangi beban tanggung jawab dan risiko hukum terkait kebocoran data medis sensitif (karena data tidak dikirim ke pihak luar). Proses verifikasi cakupan polis juga menjadi lebih otomatis dan akurat.
+*   **Bagi Perusahaan Asuransi:** Mendapatkan kepastian matematis bahwa sebuah klaim adalah valid dan sesuai ketentuan polis tanpa perlu memproses data pribadi yang sangat sensitif. Hal ini juga mempermudah kepatuhan terhadap regulasi perlindungan data (seperti UU PDP).
+
+---
+
+## 8. Perbandingan Klaim: Tradisional vs ZKP
+
+| Kategori Data | Tanpa ZKP (Tradisional) | Dengan ZKP (Claimly) |
+| :--- | :--- | :--- |
+| **Identitas Pasien** | Dapat dilihat (Nama, NIK) | Tersembunyi (Anonim via `Commitment`) |
+| **Diagnosis (ICD-10)** | Dapat dilihat & disimpan asuransi | Tersembunyi (Hanya dicek di Circuit) |
+| **Tanggal Sakit** | Dapat dilihat | Tersembunyi (Hanya cek Masa Aktif) |
+| **Penyakit Penyerta** | Terbuka di rekam medis | Terproteksi (Hanya data klaim yang di-proof) |
+| **Status Verifikasi** | Manual (Human Reviewer) | Otomatis (Matematis/Kriptografis) |
+| **Keamanan Data** | Berisiko tinggi bocor/disalahgunakan | Privasi terjamin secara infrastruktur |
