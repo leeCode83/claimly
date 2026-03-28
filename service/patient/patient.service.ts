@@ -182,6 +182,43 @@ export class PatientService {
         return data;
     }
 
+    async getPatientPoliciesByUserId(userId: string) {
+        // 1. Get patient record
+        const { data: patient, error: patientError } = await this.supabase
+            .from('patients')
+            .select('id')
+            .eq('user_id', userId)
+            .single();
+
+        if (patientError || !patient) {
+            const err: any = new Error('Patient record not found for this user');
+            err.status = 404;
+            throw err;
+        }
+
+        // 2. Get active policies for this patient
+        const { data, error } = await this.supabase
+            .from('patient_policies')
+            .select(`
+                *,
+                insurance_policy:insurance_policies(
+                    *,
+                    insurance_institution:institutions(id, name)
+                )
+            `)
+            .eq('patient_id', patient.id)
+            .eq('is_active', true)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            const err: any = new Error(error.message);
+            err.status = 400;
+            throw err;
+        }
+
+        return data;
+    }
+
     async createPatientPolicy(patientId: string, payload: {
         policy_id: string,
         policy_number: string,
