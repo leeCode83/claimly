@@ -75,7 +75,10 @@ export async function PUT(
             return NextResponse.json({ error: 'Forbidden: Anda hanya dapat mengupdate rekam medis dari institusi Anda' }, { status: 403 });
         }
 
-        const data = await medicalRecordService.updateMedicalRecord(id, { notes: body.notes });
+        const data = await medicalRecordService.updateMedicalRecord(id, {
+            notes: body.notes,
+            patientId: record.patient_id,
+        });
 
         return NextResponse.json({
             message: "Rekam medis berhasil diupdate",

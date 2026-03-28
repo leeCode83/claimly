@@ -1,4 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { generateUserKeypairForServer } from "@/lib/crypto/note-crypto";
 
 export class AuthService {
     constructor(private supabase: SupabaseClient) {}
@@ -47,6 +48,26 @@ export class AuthService {
             const err: any = new Error(error.message);
             err.status = 400;
             throw err;
+        }
+
+        // If role = "patient", generate keypair and save to DB via RPC
+        if (payload.role === 'patient' && data.user) {
+            try {
+                const keypairBundle = generateUserKeypairForServer(payload.password);
+
+                const { error: rpcError } = await this.supabase.rpc('save_user_keypair', {
+                    p_public_key:           keypairBundle.publicKeyB64,
+                    p_encrypted_priv_key:   keypairBundle.encryptedPrivKeyB64,
+                    p_key_derivation_salt:  keypairBundle.saltB64,
+                    p_key_iv:               keypairBundle.ivB64,
+                });
+
+                if (rpcError) {
+                    console.error('[AuthService.signUp] Gagal simpan keypair:', rpcError.message);
+                }
+            } catch (cryptoErr: any) {
+                console.error('[AuthService.signUp] Crypto error saat generate keypair:', cryptoErr.message);
+            }
         }
 
         return data;
