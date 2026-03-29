@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { PolicyService } from "@/service/policy/policy.service";
+import redis from "@/lib/crypto/redis";
 
 export async function GET(request: NextRequest){
     try {
@@ -14,8 +15,21 @@ export async function GET(request: NextRequest){
         const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : undefined;
         const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
 
+        const cacheKey = `policies:page=${page || 'default'}:limit=${limit || 'default'}`;
+        const cachedData = await redis.get(cacheKey);
+
+        if (cachedData) {
+            return NextResponse.json({
+                message: `Berhasil mengambil daftar polis (from cache)`,
+                ...JSON.parse(cachedData)
+            }, { status: 200 });
+        }
+
         const policyService = new PolicyService(supabase);
         const result = await policyService.getPolicies({ page, limit });
+
+        // Cache for 1 hour
+        await redis.set(cacheKey, JSON.stringify(result), 'EX', 3600);
 
         return NextResponse.json({
             message: `Berhasil mengambil daftar polis`,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { DiagnosesService } from "@/service/diagnoses/diagnoses.service";
+import redis from "@/lib/crypto/redis";
 
 export async function POST(request: NextRequest) {
     try {
@@ -42,8 +43,21 @@ export async function GET(request: NextRequest){
         const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : undefined;
         const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
 
+        const cacheKey = `diagnoses:page=${page || 'default'}:limit=${limit || 'default'}`;
+        const cachedData = await redis.get(cacheKey);
+
+        if (cachedData) {
+            return NextResponse.json({
+                message: `Berhasil mengambil daftar diagnosa (from cache)`,
+                ...JSON.parse(cachedData)
+            }, { status: 200 });
+        }
+
         const diagnosesService = new DiagnosesService(supabase);
         const result = await diagnosesService.getDiagnoses({ page, limit });
+
+        // Cache the result for 1 hour (3600 seconds)
+        await redis.set(cacheKey, JSON.stringify(result), 'EX', 3600);
 
         return NextResponse.json({
             message: `Berhasil mengambil daftar diagnosa`,
