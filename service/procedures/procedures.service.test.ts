@@ -18,6 +18,8 @@ describe('ProceduresService', () => {
             update: jest.fn().mockReturnThis(),
             delete: jest.fn().mockReturnThis(),
             upsert: jest.fn().mockReturnThis(),
+            order: jest.fn().mockReturnThis(),
+            range: jest.fn().mockReturnThis(),
         };
 
         service = new ProceduresService(mockSupabase as unknown as SupabaseClient);
@@ -56,21 +58,28 @@ describe('ProceduresService', () => {
 
     describe('getProcedures', () => {
         it('throws a 500 error if query fails', async () => {
-            mockSupabase.limit.mockResolvedValueOnce({ data: null, error: { message: 'Fetch error' } });
+            mockSupabase.range.mockResolvedValueOnce({ data: null, error: { message: 'Fetch error' }, count: null });
             await expect(service.getProcedures()).rejects.toThrow('Fetch error');
         });
 
         it('returns an empty array if data is empty', async () => {
-            mockSupabase.limit.mockResolvedValueOnce({ data: [], error: null });
+            mockSupabase.range.mockResolvedValueOnce({ data: [], error: null, count: 0 });
             const result = await service.getProcedures();
-            expect(result).toEqual([]);
+            expect(result.data).toEqual([]);
+            expect(result.pagination.total).toBe(0);
         });
 
         it('returns procedures on success', async () => {
             const mockData = [{ icd9_code: '01.1' }];
-            mockSupabase.limit.mockResolvedValueOnce({ data: mockData, error: null });
+            mockSupabase.range.mockResolvedValueOnce({ data: mockData, error: null, count: 1 });
             const result = await service.getProcedures();
-            expect(result).toEqual(mockData);
+            expect(result.data).toEqual(mockData);
+            expect(result.pagination).toEqual({
+                page: 1,
+                limit: 20,
+                total: 1,
+                total_pages: 1
+            });
         });
     });
 
@@ -112,7 +121,7 @@ describe('ProceduresService', () => {
 
     describe('processBatchProcedures', () => {
         it('throws error if CSV empty', async () => {
-            await expect(service.processBatchProcedures("code,description", 100)).rejects.toThrow('File CSV kosong atau tidak memiliki data');
+            await expect(service.processBatchProcedures("code,description", 100)).rejects.toThrow('File CSV kosong atau tidak memiliki data (minimal ada header dan 1 baris data)');
         });
 
         it('processes CSV with coverage from column', async () => {

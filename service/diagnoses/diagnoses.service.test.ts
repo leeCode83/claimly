@@ -19,6 +19,8 @@ describe('DiagnosesService', () => {
             update: jest.fn().mockReturnThis(),
             delete: jest.fn().mockReturnThis(),
             upsert: jest.fn().mockReturnThis(),
+            order: jest.fn().mockReturnThis(),
+            range: jest.fn().mockReturnThis(),
         };
 
         service = new DiagnosesService(mockSupabase as unknown as SupabaseClient);
@@ -73,7 +75,7 @@ describe('DiagnosesService', () => {
 
     describe('getDiagnoses', () => {
         it('throws a 500 error if Supabase query fails', async () => {
-            mockSupabase.limit.mockResolvedValueOnce({ data: null, error: { message: 'DB Error' } });
+            mockSupabase.range.mockResolvedValueOnce({ data: null, error: { message: 'DB Error' }, count: null });
             
             try {
                 await service.getDiagnoses();
@@ -82,17 +84,23 @@ describe('DiagnosesService', () => {
                 expect(err.status).toBe(500);
             }
         });
-
+        
         it('returns a list of diagnoses on success', async () => {
             const mockData = [{ icd10_code: 'A00.0', description: 'Cholera' }];
-            mockSupabase.limit.mockResolvedValueOnce({ data: mockData, error: null });
+            mockSupabase.range.mockResolvedValueOnce({ data: mockData, error: null, count: 1 });
 
             const result = await service.getDiagnoses();
             
             expect(mockSupabase.from).toHaveBeenCalledWith('diagnoses');
             expect(mockSupabase.select).toHaveBeenCalled();
-            expect(mockSupabase.limit).toHaveBeenCalledWith(20);
-            expect(result).toEqual(mockData);
+            expect(mockSupabase.range).toHaveBeenCalledWith(0, 19);
+            expect(result.data).toEqual(mockData);
+            expect(result.pagination).toEqual({
+                page: 1,
+                limit: 20,
+                total: 1,
+                total_pages: 1
+            });
         });
     });
 
