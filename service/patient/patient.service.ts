@@ -149,12 +149,18 @@ export class PatientService {
         return data;
     }
 
-    async getPatientPolicies(patientId: string) {
-        const { data, error } = await this.supabase
+    async getPatientPolicies(
+        patientId: string,
+        { page = 1, limit = 20 }: { page?: number; limit?: number } = {}
+    ) {
+        const offset = (page - 1) * limit;
+
+        const { data, error, count } = await this.supabase
             .from('patient_policies')
-            .select('*, insurance_policies(*)')
+            .select('*, insurance_policies(*)', { count: 'exact' })
             .eq('patient_id', patientId)
-            .order('created_at', { ascending: false });
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1);
 
         if (error) {
             const err: any = new Error(error.message);
@@ -162,7 +168,15 @@ export class PatientService {
             throw err;
         }
 
-        return data;
+        return {
+            data,
+            pagination: {
+                page,
+                limit,
+                total: count ?? 0,
+                total_pages: Math.ceil((count ?? 0) / limit),
+            },
+        };
     }
 
     async getPatientPolicyById(patientId: string, patientPolicyId: string) {

@@ -3,14 +3,26 @@ import { SupabaseClient } from "@supabase/supabase-js";
 export class InstitutionService {
     constructor(private supabase: SupabaseClient) {}
 
-    async getInstitutions(limit: number = 20) {
-        const { data, error } = await this.supabase
+    async getInstitutions({ page = 1, limit = 20 }: { page?: number; limit?: number } = {}) {
+        const offset = (page - 1) * limit;
+
+        const { data, error, count } = await this.supabase
             .from('institutions')
-            .select()
-            .limit(limit);
+            .select('id, name, type, license_number', { count: 'exact' })
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1);
 
         if (error) throw new Error(error.message);
-        return data;
+
+        return {
+            data,
+            pagination: {
+                page,
+                limit,
+                total: count ?? 0,
+                total_pages: Math.ceil((count ?? 0) / limit),
+            },
+        };
     }
 
     async getInstitutionById(id: string) {

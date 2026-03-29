@@ -4,18 +4,30 @@ import { buildMerkleTree } from "@/service/zkp";
 export class PolicyService {
     constructor(private supabase: SupabaseClient) {}
 
-    async getPolicies(limit: number = 20) {
-        const { data, error } = await this.supabase
+    async getPolicies({ page = 1, limit = 20 }: { page?: number; limit?: number } = {}) {
+        const offset = (page - 1) * limit;
+
+        const { data, error, count } = await this.supabase
             .from('insurance_policies')
-            .select()
-            .limit(limit);
+            .select('*', { count: 'exact' })
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1);
 
         if (error) {
             const err: any = new Error(error.message);
             err.status = 400;
             throw err;
         }
-        return data;
+
+        return {
+            data,
+            pagination: {
+                page,
+                limit,
+                total: count ?? 0,
+                total_pages: Math.ceil((count ?? 0) / limit),
+            },
+        };
     }
 
     async getPolicyById(id: string) {

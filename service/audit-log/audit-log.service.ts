@@ -63,8 +63,14 @@ export class AuditLogService {
         };
     }
 
-    async getAuditLogsByEntity(entityType: string, entityId: string) {
-        const { data, error } = await this.supabase
+    async getAuditLogsByEntity(
+        entityType: string,
+        entityId: string,
+        { page = 1, limit = 20 }: { page?: number; limit?: number } = {}
+    ) {
+        const offset = (page - 1) * limit;
+
+        const { data, error, count } = await this.supabase
             .from('audit_logs')
             .select(`
                 id,
@@ -74,10 +80,11 @@ export class AuditLogService {
                 metadata,
                 created_at,
                 actor:users!actor_id(id, full_name, role)
-            `)
+            `, { count: 'exact' })
             .eq('entity_type', entityType)
             .eq('entity_id', entityId)
-            .order('created_at', { ascending: false });
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1);
 
         if (error) {
             const err: any = new Error(error.message);
@@ -85,6 +92,14 @@ export class AuditLogService {
             throw err;
         }
 
-        return data;
+        return {
+            data,
+            pagination: {
+                page,
+                limit,
+                total: count ?? 0,
+                total_pages: Math.ceil((count ?? 0) / limit),
+            },
+        };
     }
 }

@@ -86,11 +86,14 @@ export class ProceduresService {
         };
     }
 
-    async getProcedures() {
-        const { data, error } = await this.supabase
+    async getProcedures({ page = 1, limit = 20 }: { page?: number; limit?: number } = {}) {
+        const offset = (page - 1) * limit;
+
+        const { data, error, count } = await this.supabase
             .from('procedures')
-            .select()
-            .limit(20);
+            .select('*', { count: 'exact' })
+            .order('icd9_code', { ascending: true })
+            .range(offset, offset + limit - 1);
 
         if (error) {
             const err: any = new Error(error.message);
@@ -98,11 +101,15 @@ export class ProceduresService {
             throw err;
         }
 
-        if (data?.length === 0) {
-            return [];
-        }
-
-        return data;
+        return {
+            data: data ?? [],
+            pagination: {
+                page,
+                limit,
+                total: count ?? 0,
+                total_pages: Math.ceil((count ?? 0) / limit),
+            },
+        };
     }
 
     async getProcedureByIcd(icdCode: string) {

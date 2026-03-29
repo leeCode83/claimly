@@ -44,11 +44,15 @@ export async function GET(
         const accessError = checkPatientAccess(user.id, requesterProfile, patient);
         if (accessError) return NextResponse.json({ error: accessError }, { status: 403 });
 
-        const data = await patientService.getPatientPolicies(patientId);
+        const searchParams = request.nextUrl.searchParams;
+        const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : undefined;
+        const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
+
+        const result = await patientService.getPatientPolicies(patientId, { page, limit });
 
         return NextResponse.json({
-            message: `Ditemukan ${data?.length || 0} polis untuk pasien ini`,
-            data
+            message: `Berhasil mengambil daftar polis untuk pasien ini`,
+            ...result
         }, { status: 200 });
 
     } catch (err: any) {

@@ -71,18 +71,30 @@ export class DiagnosesService {
         };
     }
 
-    async getDiagnoses() {
-        const { data, error } = await this.supabase
+    async getDiagnoses({ page = 1, limit = 20 }: { page?: number; limit?: number } = {}) {
+        const offset = (page - 1) * limit;
+
+        const { data, error, count } = await this.supabase
             .from('diagnoses')
-            .select()
-            .limit(20);
+            .select('*', { count: 'exact' })
+            .order('icd10_code', { ascending: true })
+            .range(offset, offset + limit - 1);
 
         if (error) {
             const err: any = new Error(error.message);
             err.status = 500;
             throw err;
         }
-        return data;
+
+        return {
+            data: data ?? [],
+            pagination: {
+                page,
+                limit,
+                total: count ?? 0,
+                total_pages: Math.ceil((count ?? 0) / limit),
+            },
+        };
     }
 
     async getDiagnosisByIcd(icdCode: string) {

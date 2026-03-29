@@ -38,12 +38,16 @@ export async function GET(request: NextRequest){
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
+        const searchParams = request.nextUrl.searchParams;
+        const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : undefined;
+        const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
+
         const proceduresService = new ProceduresService(supabase);
-        const data = await proceduresService.getProcedures();
+        const result = await proceduresService.getProcedures({ page, limit });
 
         return NextResponse.json({
-            message: `There are ${data?.length} in database`,
-            data: data
+            message: `Berhasil mengambil daftar prosedur`,
+            ...result
         }, { status: 200 });
     } catch (err: any) {
         return NextResponse.json(

@@ -25,12 +25,16 @@ export async function GET(
         const params = await props.params;
         const { entityType, entityId } = params;
 
+        const searchParams = request.nextUrl.searchParams;
+        const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : undefined;
+        const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
+
         const auditLogService = new AuditLogService(supabase);
-        const data = await auditLogService.getAuditLogsByEntity(entityType, entityId);
+        const result = await auditLogService.getAuditLogsByEntity(entityType, entityId, { page, limit });
 
         return NextResponse.json({
             message: `Berhasil mengambil audit log untuk ${entityType} dengan id ${entityId}`,
-            data,
+            ...result,
         }, { status: 200 });
 
     } catch (err: any) {
@@ -40,3 +44,4 @@ export async function GET(
         );
     }
 }
+

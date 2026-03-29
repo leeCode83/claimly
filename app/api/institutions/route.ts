@@ -10,12 +10,16 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
+        const searchParams = request.nextUrl.searchParams;
+        const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : undefined;
+        const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
+
         const institutionService = new InstitutionService(supabase);
-        const data = await institutionService.getInstitutions();
+        const result = await institutionService.getInstitutions({ page, limit });
 
         return NextResponse.json({
-            message: `There are ${data?.length || 0} in database`,
-            data: data
+            message: `Berhasil mengambil daftar institusi`,
+            ...result
         }, { status: 200 });
     } catch (err: any) {
         return NextResponse.json(
