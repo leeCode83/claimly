@@ -68,7 +68,63 @@ export class ClaimService {
 
         const procedure_date_encoded = encodeDate(payload.procedure_date);
 
-        // 1. Insert claim awal dengan status 'pending'
+        // 1. Ambil dependensi data
+        const [mrRes, ppRes, procRes] = await Promise.all([
+            this.supabase.from('medical_records').select('*, diagnosis:diagnoses(*)').eq('id', payload.medical_record_id).single(),
+            this.supabase.from('patient_policies').select('*, insurance_policies(*)').eq('id', payload.patient_policy_id).single(),
+            this.supabase.from('procedures').select('*').eq('id', payload.procedure_id).single()
+        ]);
+
+        if (mrRes.error) { const err: any = new Error(`Gagal ambil medical record: ${mrRes.error.message}`); err.status = 404; throw err; }
+        if (ppRes.error) { const err: any = new Error(`Gagal ambil patient policy: ${ppRes.error.message}`); err.status = 404; throw err; }
+        if (procRes.error) { const err: any = new Error(`Gagal ambil procedure: ${procRes.error.message}`); err.status = 404; throw err; }
+
+        const medRecord = mrRes.data;
+        const patientPolicy = ppRes.data;
+        const procedure = procRes.data;
+        const policy = patientPolicy.insurance_policies as any;
+
+        if (!policy || !policy.approved_diagnosis_root || !policy.approved_procedure_root) {
+            const err: any = new Error("Polis belum memiliki approved_diagnosis_root atau approved_procedure_root");
+            err.status = 400;
+            throw err;
+        }
+
+        // 2. Pre-Validasi Node.js (sebelum ZKP Generation)
+        if (procedure_date_encoded < medRecord.diagnosis_date_encoded) {
+             const err: any = new Error("Validasi Gagal: Tanggal prosedur tidak boleh lebih awal dari tanggal diagnosa.");
+             err.status = 400;
+             throw err;
+        }
+
+        const policyStartEncoded = encodeDate(patientPolicy.start_date);
+        const policyEndEncoded = encodeDate(patientPolicy.end_date);
+        if (procedure_date_encoded < policyStartEncoded || procedure_date_encoded > policyEndEncoded) {
+             const err: any = new Error("Validasi Gagal: Tanggal prosedur di luar masa aktif polis asuransi.");
+             err.status = 400;
+             throw err;
+        }
+
+        if (payload.claim_amount > procedure.default_max_coverage) {
+             const err: any = new Error(`Validasi Gagal: Nominal klaim melebihi batas pertanggungan maksimal (${procedure.default_max_coverage}).`);
+             err.status = 400;
+             throw err;
+        }
+
+        // 3. Bangun Input ZKP
+        const zkpInput = await this.buildZKPInputPayload(payload, medRecord, policy, patientPolicy, procedure);
+
+        // 4. Generate ZKP proof
+        let proofData;
+        try {
+            proofData = await generateProof(zkpInput);
+        } catch (zkpErr: any) {
+            const err: any = new Error(`ZKP proof generation gagal: ${zkpErr.message}`);
+            err.status = 500;
+            throw err;
+        }
+
+        // 5. Insert atomic (Insert Data Claim dan Proof bersamaan karena Proof berhasil)
         const { data: claim, error: claimError } = await this.supabase
             .from('claims')
             .insert({
@@ -78,7 +134,7 @@ export class ClaimService {
                 procedure_date: payload.procedure_date,
                 procedure_date_encoded,
                 claim_amount: payload.claim_amount,
-                status: 'pending',
+                status: 'submitted', // Langsung 'submitted' karena proof berhasil dibuat
                 submitted_by: submittedBy
             })
             .select()
@@ -86,110 +142,45 @@ export class ClaimService {
 
         if (claimError) {
             const err: any = new Error(claimError.message);
-            err.status = 400;
-            throw err;
-        }
-
-        // 2. Set status ke 'proof_generating'
-        await this.supabase
-            .from('claims')
-            .update({ status: 'proof_generating' })
-            .eq('id', claim.id);
-
-        try {
-            // 3. Kumpulkan semua data untuk ZKP input
-            const zkpInput = await this.buildZKPInput(claim.id, payload);
-
-            // 4. Generate ZKP proof
-            const { proof, publicSignals } = await generateProof(zkpInput);
-
-            // 5. Insert zkp_proof (trigger DB otomatis ubah status claim ke 'submitted')
-            const { error: proofError } = await this.supabase
-                .from('zkp_proofs')
-                .insert({
-                    claim_id: claim.id,
-                    proof_json: proof,
-                    public_signals: publicSignals
-                });
-
-            if (proofError) throw new Error(proofError.message);
-
-            return { ...claim, status: 'submitted' };
-
-        } catch (zkpErr: any) {
-            // 6. Jika ZKP gagal, set status ke 'proof_failed'
-            await this.supabase
-                .from('claims')
-                .update({ status: 'proof_failed' })
-                .eq('id', claim.id);
-
-            const err: any = new Error(`ZKP proof generation gagal: ${zkpErr.message}`);
             err.status = 500;
-            err.claim_id = claim.id;
             throw err;
         }
+
+        const { error: proofError } = await this.supabase
+            .from('zkp_proofs')
+            .insert({
+                claim_id: claim.id,
+                proof_json: proofData.proof,
+                public_signals: proofData.publicSignals
+            });
+
+        if (proofError) {
+             // Rollback manual misal insert zkp error
+             await this.supabase.from('claims').delete().eq('id', claim.id);
+             throw new Error(proofError.message);
+        }
+
+        return claim;
     }
 
-    private async buildZKPInput(claimId: string, payload: {
-        patient_policy_id: string,
-        medical_record_id: string,
-        procedure_id: string,
-        procedure_date: string,
-        claim_amount: number
-    }) {
-        // Ambil data medical record (diagnosis info)
-        const { data: medRecord, error: mrError } = await this.supabase
-            .from('medical_records')
-            .select('*, diagnosis:diagnoses(*)')
-            .eq('id', payload.medical_record_id)
-            .single();
+    private async buildZKPInputPayload(payload: any, medRecord: any, policy: any, patientPolicy: any, procedure: any) {
+        // Ambil semua leaf diagnosis dan prosedur secara paralel dari policy
+        const [diagLeavesRes, procLeavesRes] = await Promise.all([
+             this.supabase.from('policy_covered_diagnoses').select('*, diagnoses(icd10_integer_encoding)').eq('policy_id', policy.id),
+             this.supabase.from('policy_covered_procedures').select('*, procedures(icd9_integer_encoding)').eq('policy_id', policy.id)
+        ]);
 
-        if (mrError) throw new Error(`Gagal ambil medical record: ${mrError.message}`);
-
-        // Ambil data patient_policy + insurance_policy
-        const { data: patientPolicy, error: ppError } = await this.supabase
-            .from('patient_policies')
-            .select('*, insurance_policies(*)')
-            .eq('id', payload.patient_policy_id)
-            .single();
-
-        if (ppError) throw new Error(`Gagal ambil patient policy: ${ppError.message}`);
-
-        const policy = patientPolicy.insurance_policies as any;
-        if (!policy) throw new Error('Data insurance policy tidak ditemukan');
-        if (!policy.approved_diagnosis_root || !policy.approved_procedure_root) {
-            throw new Error('Policy belum memiliki approved_diagnosis_root atau approved_procedure_root');
-        }
-
-        // Ambil procedure
-        const { data: procedure, error: procError } = await this.supabase
-            .from('procedures')
-            .select('*')
-            .eq('id', payload.procedure_id)
-            .single();
-
-        if (procError) throw new Error(`Gagal ambil procedure: ${procError.message}`);
-
-        // Ambil semua leaf diagnosis dari policy untuk Merkle path
-        const { data: diagLeaves } = await this.supabase
-            .from('policy_covered_diagnoses')
-            .select('*, diagnoses(icd10_integer_encoding)')
-            .eq('policy_id', policy.id);
-
-        // Ambil semua leaf procedure dari policy untuk Merkle path
-        const { data: procLeaves } = await this.supabase
-            .from('policy_covered_procedures')
-            .select('*, procedures(icd9_integer_encoding)')
-            .eq('policy_id', policy.id);
+        const diagLeaves = diagLeavesRes.data || [];
+        const procLeaves = procLeavesRes.data || [];
 
         // Build leaf data untuk getMerklePath
-        const diagLeafData = (diagLeaves || []).map((l: any) => ({
+        const diagLeafData = diagLeaves.map((l: any) => ({
             index: l.merkle_leaf_index,
             hash: l.merkle_leaf_hash,
             encoding: l.diagnoses.icd10_integer_encoding
         }));
 
-        const procLeafData = (procLeaves || []).map((l: any) => ({
+        const procLeafData = procLeaves.map((l: any) => ({
             index: l.merkle_leaf_index,
             hash: l.merkle_leaf_hash,
             encoding: l.procedures.icd9_integer_encoding
