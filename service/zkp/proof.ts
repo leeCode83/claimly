@@ -17,6 +17,8 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_KEY!
 );
 
+const artifactDownloadPromises: Record<string, Promise<string>> = {};
+
 /**
  * Ensures a ZKP artifact is available locally in the temporary directory.
  * Downloads from Supabase Storage if missing.
@@ -28,24 +30,31 @@ async function ensureArtifact(fileName: string): Promise<string> {
     return localPath;
   }
 
-  if (!fs.existsSync(TEMP_ARTIFACTS_DIR)) {
-    fs.mkdirSync(TEMP_ARTIFACTS_DIR, { recursive: true });
+  if (!artifactDownloadPromises[fileName]) {
+    artifactDownloadPromises[fileName] = (async () => {
+      if (!fs.existsSync(TEMP_ARTIFACTS_DIR)) {
+        fs.mkdirSync(TEMP_ARTIFACTS_DIR, { recursive: true });
+      }
+
+      console.log(`Downloading ZKP artifact: ${fileName}...`);
+      const { data, error } = await supabaseAdmin.storage
+        .from(ARTIFACTS_BUCKET)
+        .download(fileName);
+
+      if (error) {
+        delete artifactDownloadPromises[fileName];
+        throw new Error(`Failed to download ${fileName} from Supabase: ${error.message}`);
+      }
+
+      const arrayBuffer = await data.arrayBuffer();
+      fs.writeFileSync(localPath, Buffer.from(arrayBuffer));
+      console.log(`Successfully cached ${fileName} at ${localPath}`);
+
+      return localPath;
+    })();
   }
 
-  console.log(`Downloading ZKP artifact: ${fileName}...`);
-  const { data, error } = await supabaseAdmin.storage
-    .from(ARTIFACTS_BUCKET)
-    .download(fileName);
-
-  if (error) {
-    throw new Error(`Failed to download ${fileName} from Supabase: ${error.message}`);
-  }
-
-  const arrayBuffer = await data.arrayBuffer();
-  fs.writeFileSync(localPath, Buffer.from(arrayBuffer));
-  console.log(`Successfully cached ${fileName} at ${localPath}`);
-
-  return localPath;
+  return artifactDownloadPromises[fileName];
 }
 
 export async function generateProof(
