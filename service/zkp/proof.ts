@@ -20,6 +20,16 @@ const supabaseAdmin = createClient(
 const artifactDownloadPromises: Record<string, Promise<string>> = {};
 
 /**
+ * Resets the local cache of artifact download promises.
+ * Only intended for use in tests to clean up state.
+ */
+export function resetArtifactCache() {
+  for (const key in artifactDownloadPromises) {
+    delete artifactDownloadPromises[key];
+  }
+}
+
+/**
  * Ensures a ZKP artifact is available locally in the temporary directory.
  * Downloads from Supabase Storage if missing.
  */

@@ -121,31 +121,9 @@ export class PolicyService {
         const { root: procRoot, leaves: procLeaves } = await buildMerkleTree({ encodings: procedureEncodings });
 
         // Insert policy
-        const { data: policy, error: policyError } = await this.supabase
-            .from('insurance_policies')
-            .insert({
-                insurance_institution_id: userProfile.institution_id,
-                policy_name,
-                max_coverage_amount,
-                valid_from,
-                valid_until,
-                approved_diagnosis_root: diagRoot,
-                approved_procedure_root: procRoot,
-                is_active: true
-            })
-            .select('id')
-            .single();
-
-        if (policyError || !policy) {
-            const err: any = new Error(policyError?.message || 'Error creating policy');
-            err.status = 500;
-            throw err;
-        }
-
         // Prepare junction table inserts
         const diagMap = Object.fromEntries(diagnosesData.map(d => [d.icd10_integer_encoding, d.id]));
         const pcdInserts = diagLeaves.map(leaf => ({
-            policy_id: policy.id,
             diagnosis_id: diagMap[leaf.encoding],
             merkle_leaf_index: leaf.index,
             merkle_leaf_hash: leaf.hash
@@ -153,24 +131,33 @@ export class PolicyService {
 
         const procMap = Object.fromEntries(proceduresData.map(p => [p.icd9_integer_encoding, p.id]));
         const pcpInserts = procLeaves.map(leaf => ({
-            policy_id: policy.id,
             procedure_id: procMap[leaf.encoding],
             merkle_leaf_index: leaf.index,
             merkle_leaf_hash: leaf.hash
         }));
 
-        // Insert junction tables
-        if (pcdInserts.length > 0) {
-            const { error: pcdError } = await this.supabase.from('policy_covered_diagnoses').insert(pcdInserts);
-            if (pcdError) throw new Error(pcdError.message);
+        // Call RPC to insert policy and relations atomically
+        const { data: policyId, error: rpcError } = await this.supabase.rpc('create_policy_with_relations', {
+            p_insurance_institution_id: userProfile.institution_id || null,
+            p_policy_name: policy_name || null,
+            p_max_coverage_amount: max_coverage_amount || null,
+            p_valid_from: valid_from || null,
+            p_valid_until: valid_until || null,
+            p_approved_diagnosis_root: diagRoot || null,
+            p_approved_procedure_root: procRoot || null,
+            p_is_active: true,
+            p_diagnoses: pcdInserts || null,
+            p_procedures: pcpInserts || null
+        });
+
+        if (rpcError || !policyId) {
+            // console.error("RPC Error:", rpcError);
+            const err: any = new Error(rpcError?.message || 'Error creating policy via RPC');
+            err.status = 500;
+            throw err;
         }
 
-        if (pcpInserts.length > 0) {
-            const { error: pcpError } = await this.supabase.from('policy_covered_procedures').insert(pcpInserts);
-            if (pcpError) throw new Error(pcpError.message);
-        }
-
-        return { id: policy.id };
+        return { id: policyId };
     }
 
     async updatePolicy(id: string, updateData: any) {

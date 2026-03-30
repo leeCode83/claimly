@@ -1,4 +1,4 @@
-import { generateProof, verifyProof } from './proof';
+import { generateProof, verifyProof, resetArtifactCache } from './proof';
 import { buildMerkleTree, getMerklePath } from './merkle';
 import { poseidonHash2 } from './poseidon';
 
@@ -38,6 +38,7 @@ import * as fs from 'fs';
 describe('ZKP Proof Service', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        resetArtifactCache();
     });
 
     describe('generateProof', () => {

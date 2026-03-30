@@ -27,6 +27,7 @@ describe('PolicyService', () => {
             single: jest.fn().mockReturnThis(),
             order: jest.fn().mockReturnThis(),
             range: jest.fn().mockReturnThis(),
+            rpc: jest.fn().mockReturnThis(),
         };
 
         service = new PolicyService(mockSupabase as unknown as SupabaseClient);
@@ -80,7 +81,7 @@ describe('PolicyService', () => {
             await expect(service.createPolicy('u1', payload)).rejects.toThrow('Invalid diagnosis codes: D01');
         });
 
-        it('successfully creates policy and junction tables', async () => {
+        it('successfully creates policy and junction tables via RPC', async () => {
             // 1. user profile
             mockSupabase.single.mockResolvedValueOnce({ data: { institution_id: 'i1', role: 'insurance_reviewer' }, error: null });
             
@@ -90,17 +91,13 @@ describe('PolicyService', () => {
             // 3. lookup procedures
             mockSupabase.in.mockResolvedValueOnce({ data: [{ id: 'p1', icd9_integer_encoding: 101, icd9_code: 'P01' }], error: null });
             
-            // 4. insert insurance_policies -> select -> single
-            // Note: insert() must return 'this' for chaining to .select()
-            mockSupabase.insert.mockReturnThis();
-            mockSupabase.single.mockResolvedValueOnce({ data: { id: 'new-policy-id' }, error: null });
+            // 4. insert via rpc
+            mockSupabase.rpc.mockResolvedValueOnce({ data: 'new-policy-id', error: null });
             
             const result = await service.createPolicy('u1', payload);
 
             expect(buildMerkleTree).toHaveBeenCalledTimes(2); // once for diagnosis, once for procedure
-            expect(mockSupabase.from).toHaveBeenCalledWith('insurance_policies');
-            expect(mockSupabase.from).toHaveBeenCalledWith('policy_covered_diagnoses');
-            expect(mockSupabase.from).toHaveBeenCalledWith('policy_covered_procedures');
+            expect(mockSupabase.rpc).toHaveBeenCalledWith('create_policy_with_relations', expect.any(Object));
             expect(result).toEqual({ id: 'new-policy-id' });
         });
     });

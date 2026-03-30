@@ -82,9 +82,13 @@ export class ClaimService {
         const medRecord = mrRes.data;
         const patientPolicy = ppRes.data;
         const procedure = procRes.data;
-        const policy = patientPolicy.insurance_policies as any;
+        
+        // Handle case where Supabase might return the joined policy as an array or object
+        const policyData = patientPolicy.insurance_policies;
+        const policy = Array.isArray(policyData) ? policyData[0] : policyData;
 
         if (!policy || !policy.approved_diagnosis_root || !policy.approved_procedure_root) {
+            console.log(policy)
             const err: any = new Error("Polis belum memiliki approved_diagnosis_root atau approved_procedure_root");
             err.status = 400;
             throw err;
@@ -111,20 +115,7 @@ export class ClaimService {
              throw err;
         }
 
-        // 3. Bangun Input ZKP
-        const zkpInput = await this.buildZKPInputPayload(payload, medRecord, policy, patientPolicy, procedure);
-
-        // 4. Generate ZKP proof
-        let proofData;
-        try {
-            proofData = await generateProof(zkpInput);
-        } catch (zkpErr: any) {
-            const err: any = new Error(`ZKP proof generation gagal: ${zkpErr.message}`);
-            err.status = 500;
-            throw err;
-        }
-
-        // 5. Insert atomic (Insert Data Claim dan Proof bersamaan karena Proof berhasil)
+        // 3. Insert Data Claim awal dengan status pending
         const { data: claim, error: claimError } = await this.supabase
             .from('claims')
             .insert({
@@ -134,7 +125,7 @@ export class ClaimService {
                 procedure_date: payload.procedure_date,
                 procedure_date_encoded,
                 claim_amount: payload.claim_amount,
-                status: 'submitted', // Langsung 'submitted' karena proof berhasil dibuat
+                status: 'pending',
                 submitted_by: submittedBy
             })
             .select()
@@ -146,18 +137,36 @@ export class ClaimService {
             throw err;
         }
 
-        const { error: proofError } = await this.supabase
-            .from('zkp_proofs')
-            .insert({
-                claim_id: claim.id,
-                proof_json: proofData.proof,
-                public_signals: proofData.publicSignals
-            });
+        try {
+            // 4. Bangun Input ZKP dan Generate proof
+            const zkpInput = await this.buildZKPInputPayload(payload, medRecord, policy, patientPolicy, procedure);
+            const proofData = await generateProof(zkpInput);
 
-        if (proofError) {
-             // Rollback manual misal insert zkp error
-             await this.supabase.from('claims').delete().eq('id', claim.id);
-             throw new Error(proofError.message);
+            // 5. Insert ZKP Proof
+            const { error: proofError } = await this.supabase
+                .from('zkp_proofs')
+                .insert({
+                    claim_id: claim.id,
+                    proof_json: proofData.proof,
+                    public_signals: proofData.publicSignals
+                });
+
+            if (proofError) {
+                throw new Error(proofError.message);
+            }
+
+            // 6. Jika berhasil, update status claim jadi submitted
+            await this.supabase.from('claims').update({ status: 'submitted' }).eq('id', claim.id);
+            claim.status = 'submitted';
+            
+        } catch (zkpErr: any) {
+            // Jika gagal buat proof, update status jadi Fail generate proof
+            await this.supabase.from('claims').update({ status: 'Fail generate proof' }).eq('id', claim.id);
+            claim.status = 'Fail generate proof';
+            
+            const err: any = new Error(`ZKP proof generation gagal: ${zkpErr.message}`);
+            err.status = 500;
+            throw err;
         }
 
         return claim;

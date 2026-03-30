@@ -91,7 +91,8 @@ describe('ClaimService', () => {
                     eq: jest.fn().mockReturnThis(),
                     single: jest.fn(),
                     insert: jest.fn().mockResolvedValue({ error: null }), // For zkp_proof insert
-                    delete: jest.fn().mockReturnThis()
+                    delete: jest.fn().mockReturnThis(),
+                    update: jest.fn().mockReturnThis()
                 };
                 
                 if (table === 'medical_records') builder.single.mockResolvedValue({ data: medRecord, error: null });
