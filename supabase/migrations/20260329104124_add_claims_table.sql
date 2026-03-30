@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS claims (
 -- ============================================================
 -- 2. PULIHKAN FK CONSTRAINT PADA zkp_proofs
 -- ============================================================
+ALTER TABLE zkp_proofs DROP CONSTRAINT IF EXISTS zkp_proofs_claim_id_fkey;
 ALTER TABLE zkp_proofs
     ADD CONSTRAINT zkp_proofs_claim_id_fkey
     FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE CASCADE;
@@ -65,7 +66,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER trigger_audit_claim_insert
+CREATE OR REPLACE TRIGGER trigger_audit_claim_insert
     AFTER INSERT ON claims
     FOR EACH ROW EXECUTE FUNCTION audit_claim_insert();
 
@@ -91,7 +92,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER trigger_audit_claim_status_change
+CREATE OR REPLACE TRIGGER  trigger_audit_claim_status_change
     AFTER UPDATE ON claims
     FOR EACH ROW EXECUTE FUNCTION audit_claim_status_change();
 

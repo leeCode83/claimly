@@ -82,9 +82,13 @@ export class ClaimService {
         const medRecord = mrRes.data;
         const patientPolicy = ppRes.data;
         const procedure = procRes.data;
-        const policy = patientPolicy.insurance_policies as any;
+        
+        // Handle case where Supabase might return the joined policy as an array or object
+        const policyData = patientPolicy.insurance_policies;
+        const policy = Array.isArray(policyData) ? policyData[0] : policyData;
 
         if (!policy || !policy.approved_diagnosis_root || !policy.approved_procedure_root) {
+            console.log(policy)
             const err: any = new Error("Polis belum memiliki approved_diagnosis_root atau approved_procedure_root");
             err.status = 400;
             throw err;
