@@ -13,6 +13,7 @@ describe('MedicalRecordService', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
         
         // Mock chainable Supabase Client methods
         mockSupabase = {
