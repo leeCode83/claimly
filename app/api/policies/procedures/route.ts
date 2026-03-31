@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { ProceduresService } from "@/service/procedures/procedures.service";
-import redis from "@/lib/crypto/redis";
+import redis from "@/lib/redis";
 
 export async function POST(request: NextRequest) {
     try {
