@@ -11,23 +11,40 @@ export async function GET(request: NextRequest) {
         const userService = new UserService(supabase);
         const requesterProfile = await userService.getMe(user.id);
 
-        if (requesterProfile.role !== 'hospital_staff') {
-            return NextResponse.json({ error: 'Forbidden: Hanya hospital_staff yang dapat melihat daftar rekam medis' }, { status: 403 });
-        }
-
-        if (!requesterProfile.institution_id) {
-            return NextResponse.json({ error: 'Forbidden: Akun Anda belum terhubung ke institusi' }, { status: 403 });
-        }
-
         const searchParams = request.nextUrl.searchParams;
+        let hospitalInstitutionId: string | undefined = undefined;
+        let patientIdFilter: string | undefined = undefined;
+
+        if (requesterProfile.role === 'hospital_staff') {
+            if (!requesterProfile.institution_id) {
+                return NextResponse.json({ error: 'Forbidden: Akun Anda belum terhubung ke institusi' }, { status: 403 });
+            }
+            hospitalInstitutionId = requesterProfile.institution_id;
+            patientIdFilter = searchParams.get('patient_id') || undefined;
+        } else if (requesterProfile.role === 'patient') {
+            // Pasien hanya boleh ambil data miliknya sendiri.
+            // Ambil patient_id yang terhubung dengan user current.
+            const { data: patientRecord, error: patientError } = await supabase
+                .from('patients')
+                .select('id')
+                .eq('user_id', user.id)
+                .single();
+
+            if (patientError || !patientRecord) {
+                return NextResponse.json({ error: 'Forbidden: Data profil pasien tidak ditemukan' }, { status: 403 });
+            }
+            patientIdFilter = patientRecord.id;
+            // hospitalInstitutionId dibiarkan undefined agar pasien bisa melihat list dari semua RS (didukung oleh RLS).
+        } else {
+            return NextResponse.json({ error: 'Forbidden: Anda tidak diizinkan mengakses daftar rekam medis' }, { status: 403 });
+        }
         const page = parseInt(searchParams.get('page') || '1');
         const limit = parseInt(searchParams.get('limit') || '10');
-        const patientId = searchParams.get('patient_id') || undefined;
 
         const medicalRecordService = new MedicalRecordService(supabase);
         const result = await medicalRecordService.getMedicalRecords({
-            hospitalInstitutionId: requesterProfile.institution_id,
-            patientId,
+            hospitalInstitutionId,
+            patientId: patientIdFilter,
             page,
             limit
         });

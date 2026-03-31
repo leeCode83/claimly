@@ -44,7 +44,7 @@ export class MedicalRecordService {
     constructor(private supabase: SupabaseClient) {}
 
     async getMedicalRecords({ hospitalInstitutionId, patientId, page = 1, limit = 10 }: {
-        hospitalInstitutionId: string,
+        hospitalInstitutionId?: string,
         patientId?: string,
         page?: number,
         limit?: number
@@ -54,9 +54,13 @@ export class MedicalRecordService {
             .select(
                 '*, diagnosis:diagnoses(icd10_code, description), patient:patients(id, full_name), attending_doctor:users!attending_doctor_id(id, full_name, role)',
                 { count: 'exact' }
-            )
-            .eq('hospital_institution_id', hospitalInstitutionId)
-            .limit(20);
+            );
+
+        if (hospitalInstitutionId) {
+            query = query.eq('hospital_institution_id', hospitalInstitutionId);
+        }
+
+        query = query.limit(20);
 
         if (patientId) {
             query = query.eq('patient_id', patientId);
