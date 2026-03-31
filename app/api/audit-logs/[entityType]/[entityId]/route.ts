@@ -14,10 +14,10 @@ export async function GET(
         const userService = new UserService(supabase);
         const requesterProfile = await userService.getMe(user.id);
 
-        const allowedRoles = ['admin', 'insurance_reviewer'];
+        const allowedRoles = ['admin', 'insurance_reviewer', 'hospital_staff'];
         if (!allowedRoles.includes(requesterProfile.role)) {
             return NextResponse.json(
-                { error: 'Forbidden: Hanya admin atau insurance_reviewer yang dapat mengakses audit logs entitas' },
+                { error: 'Forbidden: Hanya admin, insurance_reviewer, atau hospital_staff yang dapat mengakses audit logs entitas' },
                 { status: 403 }
             );
         }
