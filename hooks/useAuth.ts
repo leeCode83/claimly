@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { generateUserKeypairInBrowser } from "@/lib/crypto/browser-crypto";
+
 /**
  * Hook to handle user authentication: SignIn and SignUp.
  * Uses Sonner for notifications and returns the access_token.
@@ -70,10 +72,32 @@ export const useAuth = () => {
     }) => {
         setIsLoading(true);
         try {
+            let signupPayload: any = { ...payload };
+
+            // Zero-Knowledge Implementation:
+            // If the user is a patient, we generate the encryption keypair 
+            // and wrap the private key locally in the browser.
+            if (payload.password) {
+                toast.info("Menyiapkan kunci keamanan...", {
+                    description: "Generasi kunci enkripsi dilakukan secara lokal di perangkat Anda.",
+                });
+                
+                const bundle = await generateUserKeypairInBrowser(payload.password);
+                
+                // Add the cryptographic bundle to the payload
+                signupPayload = {
+                    ...signupPayload,
+                    p_public_key:           bundle.publicKeyB64,
+                    p_encrypted_priv_key:   bundle.encryptedPrivKeyB64,
+                    p_key_derivation_salt:  bundle.saltB64,
+                    p_key_iv:               bundle.ivB64,
+                };
+            }
+
             const response = await fetch("/api/auth/signup", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
+                body: JSON.stringify(signupPayload),
             });
 
             const result = await response.json();
