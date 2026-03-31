@@ -64,67 +64,73 @@ describe('AuthService', () => {
             await expect(service.signUp({ email: 'test@mail.com' })).rejects.toThrow('Email and password are required');
         });
 
-        it('returns user data on success for non-patient role', async () => {
+        it('generates and saves keypair for ANY role by default', async () => {
              const payload = { 
-                 email: 'test@mail.com', 
-                 password: '123', 
+                 email: 'staff@mail.com', 
+                 password: 'StaffPassword123', 
                  full_name: 'Staff User',
                  role: 'hospital_staff',
                  institution_id: 'inst-1'
              };
-             const mockResult = { data: { user: { id: 'staff-1' } }, error: null };
+             
+             const mockUser = { id: 'staff-uuid' };
+             const mockResult = { data: { user: mockUser }, error: null };
              mockSupabase.auth.signUp.mockResolvedValueOnce(mockResult);
 
-             const result = await service.signUp(payload);
+             const mockKeypair = {
+                 publicKeyB64: 'pub-key-staff',
+                 encryptedPrivKeyB64: 'enc-priv-key-staff',
+                 saltB64: 'salt-staff',
+                 ivB64: 'iv-staff'
+             };
+             (generateUserKeypairForServer as jest.Mock).mockReturnValueOnce(mockKeypair);
+
+             await service.signUp(payload);
              
-             expect(mockSupabase.auth.signUp).toHaveBeenCalledWith({
-                 email: payload.email,
-                 password: payload.password,
-                 options: {
-                     data: {
-                         full_name: payload.full_name,
-                         role: payload.role,
-                         institution_id: payload.institution_id
-                     }
-                 }
+             // Verify Supabase signUp was called
+             expect(mockSupabase.auth.signUp).toHaveBeenCalled();
+
+             // Verify crypto was called for hospital_staff (Default behavior now)
+             expect(generateUserKeypairForServer).toHaveBeenCalledWith(payload.password);
+
+             // Verify RPC was called to save the keypair
+             expect(mockSupabase.rpc).toHaveBeenCalledWith('save_user_keypair', {
+                 p_public_key:           mockKeypair.publicKeyB64,
+                 p_encrypted_priv_key:   mockKeypair.encryptedPrivKeyB64,
+                 p_key_derivation_salt:  mockKeypair.saltB64,
+                 p_key_iv:               mockKeypair.ivB64,
              });
-             // Should NOT trigger crypto for hospital_staff
-             expect(generateUserKeypairForServer).not.toHaveBeenCalled();
-             expect(mockSupabase.rpc).not.toHaveBeenCalled();
-             expect(result).toEqual(mockResult.data);
         });
 
-        it('generates and saves keypair for patient role', async () => {
+        it('skips server-side generation if client-side bundle is provided (Zero-Knowledge)', async () => {
+            const clientBundle = {
+                p_public_key: 'client-pub',
+                p_encrypted_priv_key: 'client-enc-priv',
+                p_key_derivation_salt: 'client-salt',
+                p_key_iv: 'client-iv'
+            };
+
             const payload = { 
-                email: 'patient@mail.com', 
-                password: 'MySecurePassword', 
-                full_name: 'Budi Pasien',
-                role: 'patient'
+                email: 'zkp@mail.com', 
+                password: 'password123', 
+                role: 'patient',
+                ...clientBundle
             };
             
-            const mockUser = { id: 'patient-uuid' };
-            const mockResult = { data: { user: mockUser }, error: null };
+            const mockResult = { data: { user: { id: 'zkp-user' } }, error: null };
             mockSupabase.auth.signUp.mockResolvedValueOnce(mockResult);
-
-            const mockKeypair = {
-                publicKeyB64: 'pub-key',
-                encryptedPrivKeyB64: 'enc-priv-key',
-                saltB64: 'salt',
-                ivB64: 'iv'
-            };
-            (generateUserKeypairForServer as jest.Mock).mockReturnValueOnce(mockKeypair);
 
             await service.signUp(payload);
 
-            // Verify crypto was called with plaintext password
-            expect(generateUserKeypairForServer).toHaveBeenCalledWith(payload.password);
+            // IMPORTANT: Should NOT call server-side generation
+            expect(generateUserKeypairForServer).not.toHaveBeenCalled();
 
-            // Verify RPC was called to save the keypair
+            // Should call RPC with the CLIENT's bundle
             expect(mockSupabase.rpc).toHaveBeenCalledWith('save_user_keypair', {
-                p_public_key:           mockKeypair.publicKeyB64,
-                p_encrypted_priv_key:   mockKeypair.encryptedPrivKeyB64,
-                p_key_derivation_salt:  mockKeypair.saltB64,
-                p_key_iv:               mockKeypair.ivB64,
+                p_public_key:           clientBundle.p_public_key,
+                p_encrypted_priv_key:   clientBundle.p_encrypted_priv_key,
+                p_key_derivation_salt:  clientBundle.p_key_derivation_salt,
+                p_key_iv:               clientBundle.p_key_iv,
             });
         });
 
