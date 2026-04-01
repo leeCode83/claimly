@@ -4,8 +4,8 @@ import * as snarkjs from 'snarkjs';
 import { createClient } from '@supabase/supabase-js';
 import { GenerateProofInput, GenerateProofOutput, VerifyProofInput, VerifyProofOutput } from './types';
 
-// Environment detection
-const isBrowser = typeof window !== 'undefined';
+// Environment detection - check inline or via function for best practice and testability
+// const isBrowser = typeof window !== 'undefined';
 
 const ARTIFACTS_BUCKET = 'zkp-artifacts';
 
@@ -16,7 +16,7 @@ const ARTIFACTS_BUCKET = 'zkp-artifacts';
  */
 const getSupabaseClient = () => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = isBrowser 
+  const key = typeof window !== 'undefined' 
     ? process.env.NEXT_PUBLIC_SUPABASE_KEY! 
     : (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_KEY!);
   
@@ -31,7 +31,7 @@ const supabase = getSupabaseClient();
  * Node.js: ensures local availability and returns the file path.
  */
 async function ensureArtifact(fileName: string): Promise<string> {
-  if (isBrowser) {
+  if (typeof window !== 'undefined') {
     const { data } = supabase.storage.from(ARTIFACTS_BUCKET).getPublicUrl(fileName);
     return data.publicUrl;
   }
@@ -109,7 +109,7 @@ export async function verifyProof(
 ): Promise<VerifyProofOutput> {
   let vKey: any;
 
-  if (isBrowser) {
+  if (typeof window !== 'undefined') {
     const vkeyUrl = await ensureArtifact('verification_key.json');
     vKey = await fetch(vkeyUrl).then(res => res.json());
   } else {

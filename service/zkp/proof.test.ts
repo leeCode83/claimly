@@ -1,4 +1,4 @@
-import { generateProof, verifyProof, resetArtifactCache } from './proof';
+import { generateProof, verifyProof } from './proof';
 import { buildMerkleTree, getMerklePath } from './merkle';
 import { poseidonHash2 } from './poseidon';
 
@@ -24,7 +24,8 @@ jest.mock('@supabase/supabase-js', () => {
         createClient: jest.fn(() => ({
             storage: {
                 from: jest.fn(() => ({
-                    download: mockDownload
+                    download: mockDownload,
+                    getPublicUrl: jest.fn().mockReturnValue({ data: { publicUrl: 'http://localhost/test.wasm' } })
                 }))
             }
         }))
@@ -38,7 +39,6 @@ import * as fs from 'fs';
 describe('ZKP Proof Service', () => {
     beforeEach(() => {
         jest.clearAllMocks();
-        resetArtifactCache();
     });
 
     describe('generateProof', () => {
@@ -110,12 +110,22 @@ describe('ZKP Proof Service', () => {
 
         it('returns true for a valid proof', async () => {
             (fs.existsSync as jest.Mock).mockReturnValue(true);
+            (snarkjs.groth16.verify as jest.Mock).mockResolvedValueOnce(true);
             
             const result = await verifyProof(dummyVerifyInput as any);
             
             expect(fs.readFileSync).toHaveBeenCalled(); // reads vkey
             expect(snarkjs.groth16.verify).toHaveBeenCalled();
             expect(result.isValid).toBe(true);
+        });
+
+        it('returns false for an invalid proof', async () => {
+            (fs.existsSync as jest.Mock).mockReturnValue(true);
+            (snarkjs.groth16.verify as jest.Mock).mockResolvedValueOnce(false);
+            
+            const result = await verifyProof(dummyVerifyInput as any);
+            
+            expect(result.isValid).toBe(false);
         });
     });
 
@@ -147,6 +157,48 @@ describe('ZKP Proof Service', () => {
             }
             
             expect(currentHash).toBe(root);
+        });
+
+        it('throws error if encoding is not found in leaf data', async () => {
+            const leaves = [{ encoding: 100, hash: 'h1', index: 0 }];
+            await expect(getMerklePath({
+                encoding: 999, // missing
+                allLeafData: leaves
+            })).rejects.toThrow('Encoding 999 not found in leaf data');
+        });
+    });
+
+    describe('Environment: Browser', () => {
+        const originalWindow = global.window;
+        const originalFetch = global.fetch;
+
+        beforeAll(() => {
+            // @ts-ignore
+            global.window = {}; // Simulate browser
+            global.fetch = jest.fn();
+        });
+
+        afterAll(() => {
+            global.window = originalWindow;
+            global.fetch = originalFetch;
+        });
+
+        it('uses public URLs and fetch in browser mode', async () => {
+            (global.fetch as jest.Mock).mockResolvedValue({
+                json: () => Promise.resolve({ vKey: 'mock' })
+            });
+
+            const dummyVerifyInput = {
+                proof: { pi_a: ['1'] },
+                publicSignals: ['1']
+            };
+
+            const result = await verifyProof(dummyVerifyInput as any);
+            
+            expect(global.fetch).toHaveBeenCalled();
+            expect(result.isValid).toBe(true);
+            // Verify it didn't use fs
+            expect(fs.readFileSync).not.toHaveBeenCalled();
         });
     });
 });
