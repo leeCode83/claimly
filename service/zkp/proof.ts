@@ -98,8 +98,8 @@ export async function generateProof(
       zkeyPath
     );
     return { proof, publicSignals };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
+  } catch (err) {
+    const error = err as Error;
     throw new Error(`Witness generation failed: ${error.message}`);
   }
 }
@@ -107,7 +107,7 @@ export async function generateProof(
 export async function verifyProof(
   input: VerifyProofInput
 ): Promise<VerifyProofOutput> {
-  let vKey: any;
+  let vKey: unknown;
 
   if (typeof window !== 'undefined') {
     const vkeyUrl = await ensureArtifact('verification_key.json');
@@ -119,7 +119,7 @@ export async function verifyProof(
   }
 
   const isValid = await snarkjs.groth16.verify(
-    vKey,
+    vKey as any,
     input.publicSignals,
     input.proof
   );
