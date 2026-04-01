@@ -43,21 +43,22 @@ export async function POST(request: NextRequest) {
             ...result
         }, { status: 201 });
 
-    } catch (err: any) {
-        if (err.invalid_rows) {
+    } catch (err) {
+        const error = err as Error & { status?: number; invalid_rows?: Record<string, unknown>[]; invalid_count?: number };
+        if (error.invalid_rows) {
             return NextResponse.json(
                 { 
-                    error: err.message || 'Error occurred', 
-                    invalid_count: err.invalid_count,
-                    invalid_rows: err.invalid_rows 
+                    error: error.message || 'Error occurred', 
+                    invalid_count: error.invalid_count,
+                    invalid_rows: error.invalid_rows 
                 },
-                { status: err.status || 400 }
+                { status: error.status || 400 }
             );
         }
 
         return NextResponse.json(
-            { error: err.message || 'Internal Server Error' },
-            { status: err.status || 500 }
+            { error: error.message || 'Internal Server Error' },
+            { status: error.status || 500 }
         );
     }
 }

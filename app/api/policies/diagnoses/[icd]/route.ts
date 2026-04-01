@@ -20,10 +20,11 @@ export async function GET(
         const data = await diagnosesService.getDiagnosisByIcd(icdCode);
 
         return NextResponse.json({ data }, { status: 200 });
-    } catch (err: any) {
+    } catch (err) {
+        const error = err as Error & { status?: number };
         return NextResponse.json(
-            { error: err.message || 'Internal Server Error' },
-            { status: err.status || 500 }
+            { error: error.message || 'Internal Server Error' },
+            { status: error.status || 500 }
         );
     }
 }
@@ -52,10 +53,11 @@ export async function PATCH(
             data 
         }, { status: 200 });
 
-    } catch (err: any) {
+    } catch (err) {
+        const error = err as Error & { status?: number };
         return NextResponse.json(
-            { error: err.message || 'Internal Server Error' },
-            { status: err.status || 500 }
+            { error: error.message || 'Internal Server Error' },
+            { status: error.status || 500 }
         );
     }
 }
@@ -82,10 +84,11 @@ export async function DELETE(
             data 
         }, { status: 200 });
 
-    } catch (err: any) {
+    } catch (err) {
+        const error = err as Error & { status?: number };
         return NextResponse.json(
-            { error: err.message || 'Internal Server Error' },
-            { status: err.status || 500 }
+            { error: error.message || 'Internal Server Error' },
+            { status: error.status || 500 }
         );
     }
 }

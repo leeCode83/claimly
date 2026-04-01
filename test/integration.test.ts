@@ -27,7 +27,7 @@ if (fs.existsSync(envPath)) {
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
 
 // Helper for API calls
-async function apiRequest(endpoint: string, method: string = 'GET', body: any = null, token: string | null = null) {
+async function apiRequest(endpoint: string, method: string = 'GET', body: Record<string, unknown> | null = null, token: string | null = null) {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -76,7 +76,7 @@ describe('Claimly Integration Flow', () => {
   });
 
   afterEach(() => {
-    const state = (expect as any).getState();
+    const state = (expect as unknown as { getState: () => { error?: Error } }).getState();
     if (state.error) {
       previousTestFailed = true;
     }
@@ -162,16 +162,16 @@ describe('Claimly Integration Flow', () => {
     const diagRes = await apiRequest('/api/policies/diagnoses', 'GET', null, reviewerToken);
     expect(diagRes.status).toBe(200);
     expect(diagRes.data.data.length).toBeGreaterThan(0);
-    const diagData = diagRes.data.data.slice(0, 5);
-    diagnosisCodes = diagData.map((d: any) => d.icd10_code);
-    diagnosisIds = diagData.map((d: any) => d.id);
+    const diagData = diagRes.data.data.slice(0, 5) as Array<{ icd10_code: string; id: string }>;
+    diagnosisCodes = diagData.map((d) => d.icd10_code);
+    diagnosisIds = diagData.map((d) => d.id);
 
     const procRes = await apiRequest('/api/policies/procedures', 'GET', null, reviewerToken);
     expect(procRes.status).toBe(200);
     expect(procRes.data.data.length).toBeGreaterThan(0);
-    const procData = procRes.data.data.slice(0, 5);
-    procedureCodes = procData.map((p: any) => p.icd9_code);
-    procedureIds = procData.map((p: any) => p.id);
+    const procData = procRes.data.data.slice(0, 5) as Array<{ icd9_code: string; id: string }>;
+    procedureCodes = procData.map((p) => p.icd9_code);
+    procedureIds = procData.map((p) => p.id);
   });
 
   test('should create a new insurance policy template', async () => {
@@ -345,7 +345,7 @@ describe('Claimly Integration Flow', () => {
       tamperedProof.pi_a[0] = "1234567890"; // Invalid value
 
       // 4. Submit tampered proof
-      const { status, errorMsg } = await apiRequest('/api/claims', 'POST', {
+      const { status } = await apiRequest('/api/claims', 'POST', {
         ...prepPayload,
         proof: tamperedProof,
         public_signals: publicSignals

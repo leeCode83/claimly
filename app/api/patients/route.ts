@@ -32,8 +32,9 @@ export async function GET(request: NextRequest) {
             ...result
         }, { status: 200 });
 
-    } catch (err: any) {
-        return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: err.status || 500 });
+    } catch (err) {
+        const error = err as Error & { status?: number };
+        return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: error.status || 500 });
     }
 }
 
@@ -63,7 +64,8 @@ export async function POST(request: NextRequest) {
             data
         }, { status: 201 });
 
-    } catch (err: any) {
-        return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: err.status || 500 });
+    } catch (err) {
+        const error = err as Error & { status?: number };
+        return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: error.status || 500 });
     }
 }

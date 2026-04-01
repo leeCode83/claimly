@@ -1,9 +1,61 @@
 import { SupabaseClient } from "@supabase/supabase-js";
-import { generateProof, verifyProof, validatePublicSignals, buildMerkleTree, getMerklePath } from "@/service/zkp";
+import { verifyProof, validatePublicSignals, getMerklePath } from "@/service/zkp";
 
 function encodeDate(dateStr: string): number {
-    // encode tanggal ke format YYYYMMDD integer
     return parseInt(dateStr.replace(/-/g, ''), 10);
+}
+
+interface AppError extends Error {
+    status?: number;
+}
+
+interface Claim {
+    id: string;
+    patient_policy_id: string;
+    medical_record_id: string;
+    procedure_id: string;
+    procedure_date: string;
+    procedure_date_encoded: number;
+    claim_amount: number;
+    status: string;
+    submitted_by: string;
+    submitted_at: string;
+    zkp_proofs?: ZkpProof | ZkpProof[];
+    patient_policies?: PatientPolicy;
+    procedures?: Procedure;
+}
+
+interface ZkpProof {
+    id: string;
+    claim_id: string;
+    proof_json: unknown;
+    public_signals: string[];
+    verification_result: boolean | null;
+    verified_at?: string;
+}
+
+interface Procedure {
+    id: string;
+    icd9_integer_encoding: number;
+    default_max_coverage: number;
+}
+
+interface PatientPolicy {
+    id: string;
+    start_date: string;
+    end_date: string;
+    insurance_policies: InsurancePolicy | InsurancePolicy[];
+}
+
+interface InsurancePolicy {
+    id: string;
+    approved_diagnosis_root: string;
+    approved_procedure_root: string;
+}
+
+interface MedicalRecord {
+    diagnosis_date_encoded: number;
+    diagnosis: { icd10_integer_encoding: number } | { icd10_integer_encoding: number }[];
 }
 
 export class ClaimService {
@@ -34,7 +86,7 @@ export class ClaimService {
         });
 
         if (error) {
-            const err: any = new Error(error.message);
+            const err = new Error(error.message) as AppError;
             err.status = 500;
             throw err;
         }
@@ -58,12 +110,12 @@ export class ClaimService {
         procedure_id: string,
         procedure_date: string,
         claim_amount: number,
-        proof?: any,
+        proof?: unknown,
         public_signals?: string[]
     }, submittedBy: string) {
         // Validasi input
         if (!payload.patient_policy_id || !payload.medical_record_id || !payload.procedure_id || !payload.procedure_date || !payload.claim_amount) {
-            const err: any = new Error("Semua field wajib diisi: patient_policy_id, medical_record_id, procedure_id, procedure_date, claim_amount");
+            const err = new Error("Semua field wajib diisi: patient_policy_id, medical_record_id, procedure_id, procedure_date, claim_amount") as AppError;
             err.status = 400;
             throw err;
         }
@@ -81,21 +133,21 @@ export class ClaimService {
         const policy = Array.isArray(policyData) ? policyData[0] : policyData;
 
         if (!policy || !policy.approved_diagnosis_root || !policy.approved_procedure_root) {
-            const err: any = new Error("Polis belum memiliki approved_diagnosis_root atau approved_procedure_root");
+            const err = new Error("Polis belum memiliki approved_diagnosis_root atau approved_procedure_root") as AppError;
             err.status = 400;
             throw err;
         }
 
         const medDiagnosis = Array.isArray(medRecord.diagnosis) ? medRecord.diagnosis[0] : medRecord.diagnosis;
         if (!medDiagnosis) {
-            const err: any = new Error("Medical record tidak memiliki data diagnosa");
+            const err = new Error("Medical record tidak memiliki data diagnosa") as AppError;
             err.status = 400;
             throw err;
         }
 
         // 2. Pre-Validasi Node.js (sebelum ZKP Generation)
         if (procedure_date_encoded < medRecord.diagnosis_date_encoded) {
-             const err: any = new Error("Validasi Gagal: Tanggal prosedur tidak boleh lebih awal dari tanggal diagnosa.");
+             const err = new Error("Validasi Gagal: Tanggal prosedur tidak boleh lebih awal dari tanggal diagnosa.") as AppError;
              err.status = 400;
              throw err;
         }
@@ -103,13 +155,13 @@ export class ClaimService {
         const policyStartEncoded = encodeDate(patientPolicy.start_date);
         const policyEndEncoded = encodeDate(patientPolicy.end_date);
         if (procedure_date_encoded < policyStartEncoded || procedure_date_encoded > policyEndEncoded) {
-             const err: any = new Error("Validasi Gagal: Tanggal prosedur di luar masa aktif polis asuransi.");
+             const err = new Error("Validasi Gagal: Tanggal prosedur di luar masa aktif polis asuransi.") as AppError;
              err.status = 400;
              throw err;
         }
 
         if (payload.claim_amount > procedure.default_max_coverage) {
-             const err: any = new Error(`Validasi Gagal: Nominal klaim melebihi batas pertanggungan maksimal (${procedure.default_max_coverage}).`);
+             const err = new Error(`Validasi Gagal: Nominal klaim melebihi batas pertanggungan maksimal (${procedure.default_max_coverage}).`) as AppError;
              err.status = 400;
              throw err;
         }
@@ -131,7 +183,7 @@ export class ClaimService {
             .single();
 
         if (claimError) {
-            const err: any = new Error(claimError.message);
+            const err = new Error(claimError.message) as AppError;
             err.status = 500;
             throw err;
         }
@@ -149,7 +201,7 @@ export class ClaimService {
                 });
 
                 if (!validation.isValid) {
-                    const err: any = new Error(`Integritas data ZKP gagal: ${validation.reason}`);
+                    const err = new Error(`Integritas data ZKP gagal: ${validation.reason}`) as AppError;
                     err.status = 400;
                     throw err;
                 }
@@ -161,7 +213,7 @@ export class ClaimService {
                 });
 
                 if (!isValid) {
-                    const err: any = new Error("Verifikasi ZKP Proof gagal: Bukti tidak valid atau tidak sesuai dengan data klaim.");
+                    const err = new Error("Verifikasi ZKP Proof gagal: Bukti tidak valid atau tidak sesuai dengan data klaim.") as AppError;
                     err.status = 400;
                     throw err;
                 }
@@ -179,11 +231,11 @@ export class ClaimService {
                 }
 
                 // 5. Update status claim jadi submitted
-                await this.supabase.from('claims').update({ status: 'submitted' }).eq('id', claim.id);
-                claim.status = 'submitted';
-            } catch (err: any) {
-                await this.supabase.from('claims').update({ status: 'Fail generate proof' }).eq('id', claim.id);
-                claim.status = 'Fail generate proof';
+                await this.supabase.from('claims').update({ status: 'submitted' }).eq('id', (claim as Claim).id);
+                (claim as Claim).status = 'submitted';
+            } catch (err) {
+                await this.supabase.from('claims').update({ status: 'Fail generate proof' }).eq('id', (claim as Claim).id);
+                (claim as Claim).status = 'Fail generate proof';
                 throw err;
             }
         }
@@ -208,14 +260,14 @@ export class ClaimService {
         const policy = Array.isArray(policyData) ? policyData[0] : policyData;
 
         if (!policy || !policy.approved_diagnosis_root || !policy.approved_procedure_root) {
-            const err: any = new Error("Polis belum memiliki approved_diagnosis_root atau approved_procedure_root");
+            const err = new Error("Polis belum memiliki approved_diagnosis_root atau approved_procedure_root") as AppError;
             err.status = 400;
             throw err;
         }
 
         const medDiagnosis = Array.isArray(medRecord.diagnosis) ? medRecord.diagnosis[0] : medRecord.diagnosis;
         if (!medDiagnosis) {
-            const err: any = new Error("Medical record tidak memiliki data diagnosa");
+            const err = new Error("Medical record tidak memiliki data diagnosa") as AppError;
             err.status = 400;
             throw err;
         }
@@ -230,7 +282,7 @@ export class ClaimService {
         const procLeaves = procLeavesRes.data || [];
 
         // Build leaf data untuk getMerklePath
-        const diagLeafData = diagLeaves.map((l: any) => {
+        const diagLeafData = diagLeaves.map((l: { diagnoses: { icd10_integer_encoding: number } | { icd10_integer_encoding: number }[]; merkle_leaf_index: number; merkle_leaf_hash: string }) => {
             const d = Array.isArray(l.diagnoses) ? l.diagnoses[0] : l.diagnoses;
             return {
                 index: l.merkle_leaf_index,
@@ -239,7 +291,7 @@ export class ClaimService {
             };
         });
 
-        const procLeafData = procLeaves.map((l: any) => {
+        const procLeafData = procLeaves.map((l: { procedures: { icd9_integer_encoding: number } | { icd9_integer_encoding: number }[]; merkle_leaf_index: number; merkle_leaf_hash: string }) => {
             const p = Array.isArray(l.procedures) ? l.procedures[0] : l.procedures;
             return {
                 index: l.merkle_leaf_index,
@@ -286,26 +338,27 @@ export class ClaimService {
             .single();
 
         if (claimError) {
-            const err: any = new Error(claimError.message);
+            const err = new Error(claimError.message) as AppError;
             err.status = 404;
             throw err;
         }
 
         // Auto-verify jika proof ada tapi belum diverifikasi
-        const zkpProof = (claim as any).zkp_proofs;
+        const zkpProof = (claim as unknown as Claim).zkp_proofs as ZkpProof | undefined;
         if (zkpProof && zkpProof.verification_result === null) {
             try {
                 // Re-validate consistency before auto-verify
-                const policyData = (claim as any).patient_policies?.insurance_policies;
+                const patientPolicies = (claim as unknown as Claim).patient_policies;
+                const policyData = patientPolicies?.insurance_policies;
                 const policy = Array.isArray(policyData) ? policyData[0] : policyData;
-                const procedure = (claim as any).procedures;
+                const procedure = (claim as unknown as Claim).procedures;
 
                 const validation = validatePublicSignals(zkpProof.public_signals, {
                     claimAmount: claim.claim_amount,
                     procedureDate: claim.procedure_date_encoded,
-                    approvedDiagnosisRoot: policy.approved_diagnosis_root,
-                    approvedProcedureRoot: policy.approved_procedure_root,
-                    maxCoverageAmount: procedure.default_max_coverage
+                    approvedDiagnosisRoot: policy?.approved_diagnosis_root || "",
+                    approvedProcedureRoot: policy?.approved_procedure_root || "",
+                    maxCoverageAmount: procedure?.default_max_coverage || 0
                 });
 
                 if (!validation.isValid) {
@@ -344,14 +397,14 @@ export class ClaimService {
             .single();
 
         if (fetchError || !claim) {
-            const err: any = new Error("Klaim tidak ditemukan");
+            const err = new Error("Klaim tidak ditemukan") as AppError;
             err.status = 404;
             throw err;
         }
 
-        const zkpProof = (claim as any).zkp_proofs;
+        const zkpProof = (claim as unknown as Claim).zkp_proofs as ZkpProof | undefined;
         if (!zkpProof) {
-            const err: any = new Error("Klaim tidak dapat disetujui tanpa ZKP proof");
+            const err = new Error("Klaim tidak dapat disetujui tanpa ZKP proof") as AppError;
             err.status = 400;
             throw err;
         }
@@ -361,21 +414,21 @@ export class ClaimService {
         if (isValid === null) {
             try {
                 // Fetch full claim data for consistency check
-                const fullClaim = await this.getClaimById(claimId);
-                const policyData = (fullClaim as any).patient_policies?.insurance_policies;
+                const fullClaim = await this.getClaimById(claimId) as unknown as Claim;
+                const policyData = fullClaim.patient_policies?.insurance_policies;
                 const policy = Array.isArray(policyData) ? policyData[0] : policyData;
-                const proc = (fullClaim as any).procedures;
+                const proc = fullClaim.procedures;
 
                 const validation = validatePublicSignals(zkpProof.public_signals, {
                     claimAmount: fullClaim.claim_amount,
                     procedureDate: fullClaim.procedure_date_encoded,
-                    approvedDiagnosisRoot: policy.approved_diagnosis_root,
-                    approvedProcedureRoot: policy.approved_procedure_root,
-                    maxCoverageAmount: proc.default_max_coverage
+                    approvedDiagnosisRoot: policy?.approved_diagnosis_root || "",
+                    approvedProcedureRoot: policy?.approved_procedure_root || "",
+                    maxCoverageAmount: proc?.default_max_coverage || 0
                 });
 
                 if (!validation.isValid) {
-                    const err: any = new Error(`Integritas Proof Gagal: ${validation.reason}`);
+                    const err = new Error(`Integritas Proof Gagal: ${validation.reason}`) as AppError;
                     err.status = 400;
                     throw err;
                 }
@@ -393,15 +446,15 @@ export class ClaimService {
                         verified_at: new Date().toISOString()
                     })
                     .eq('id', zkpProof.id);
-            } catch (vErr: any) {
-                const err: any = new Error(`Gagal memverifikasi ZKP proof: ${vErr.message}`);
+            } catch (vErr) {
+                const err = new Error(`Gagal memverifikasi ZKP proof: ${vErr instanceof Error ? vErr.message : String(vErr)}`) as AppError;
                 err.status = 500;
                 throw err;
             }
         }
 
         if (!isValid) {
-            const err: any = new Error("Klaim tidak dapat disetujui: ZKP proof tidak valid (verifikasi gagal)");
+            const err = new Error("Klaim tidak dapat disetujui: ZKP proof tidak valid (verifikasi gagal)") as AppError;
             err.status = 400;
             throw err;
         }
@@ -413,7 +466,7 @@ export class ClaimService {
         });
 
         if (error) {
-            const err: any = new Error(error.message);
+            const err = new Error(error.message) as AppError;
             err.status = 400;
             throw err;
         }
@@ -423,7 +476,7 @@ export class ClaimService {
 
     async rejectClaim(claimId: string, reviewerId: string, reviewNotes: string) {
         if (!reviewNotes || reviewNotes.trim() === '') {
-            const err: any = new Error("review_notes wajib diisi saat menolak klaim");
+            const err = new Error("review_notes wajib diisi saat menolak klaim") as AppError;
             err.status = 400;
             throw err;
         }
@@ -435,11 +488,10 @@ export class ClaimService {
         });
 
         if (error) {
-            const err: any = new Error(error.message);
+            const err = new Error(error.message) as AppError;
             err.status = 400;
             throw err;
         }
-
         return { claim_id: claimId, status: 'rejected' };
     }
 
@@ -456,12 +508,12 @@ export class ClaimService {
                 .eq('id', procedure_id).single()
         ]);
 
-        if (mrRes.error) { const err: any = new Error(`Gagal ambil medical record: ${mrRes.error.message}`); err.status = 404; throw err; }
-        if (ppRes.error) { const err: any = new Error(`Gagal ambil patient policy: ${ppRes.error.message}`); err.status = 404; throw err; }
-        if (procRes.error) { const err: any = new Error(`Gagal ambil procedure: ${procRes.error.message}`); err.status = 404; throw err; }
+        if (mrRes.error) { const err = new Error(`Gagal ambil medical record: ${mrRes.error.message}`) as AppError; err.status = 404; throw err; }
+        if (ppRes.error) { const err = new Error(`Gagal ambil patient policy: ${ppRes.error.message}`) as AppError; err.status = 404; throw err; }
+        if (procRes.error) { const err = new Error(`Gagal ambil procedure: ${procRes.error.message}`) as AppError; err.status = 404; throw err; }
 
         return {
-            medRecord: mrRes.data,
+            medRecord: mrRes.data as MedicalRecord,
             patientPolicy: ppRes.data,
             procedure: procRes.data
         };
