@@ -3,7 +3,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react"
 import { toast } from "sonner"
 import { generateUserKeypairInBrowser } from "@/lib/crypto/browser-crypto"
-import { useUsers } from "@/hooks/useUsers"
 
 interface User {
   id: string
@@ -28,7 +27,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const usersApi = useUsers(accessToken)
 
   // Initialize from localStorage if available
   useEffect(() => {
@@ -57,21 +55,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(message)
       }
 
-      const token = result.data.session?.access_token
-      setAccessToken(token)
-      localStorage.setItem("claimly_token", token)
-
-      // Use the hook's getMe function with token override
-      const userData: User = await usersApi.getMe(token)
+      const authData = result.data.session;
+      const token = authData?.access_token;
       
-      setUser(userData)
-      localStorage.setItem("claimly_user", JSON.stringify(userData))
+      if (token) {
+        setAccessToken(token)
+        localStorage.setItem("claimly_token", token)
 
-      toast.success("Sign In Berhasil", {
-        description: `Selamat datang kembali, ${userData.full_name || userData.email}!`,
-      })
+        const rawUser = authData.user;
+        const userData: User = {
+          id: rawUser.id,
+          email: rawUser.email,
+          role: rawUser.user_metadata?.role,
+          full_name: rawUser.user_metadata?.full_name,
+          institution_id: rawUser.user_metadata?.institution_id,
+        };
+        
+        setUser(userData)
+        localStorage.setItem("claimly_user", JSON.stringify(userData))
 
-      return token
+        toast.success("Sign In Berhasil", {
+          description: `Selamat datang kembali, ${userData.full_name || userData.email}!`,
+        })
+
+        return token
+      }
+
+      return null
     } catch (error: any) {
       console.error("[AuthContext.signIn] Error:", error.message)
       if (error.message === "Failed to fetch") {
@@ -124,11 +134,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(message)
       }
 
+      const authData = result.data.session;
+      const token = authData?.access_token;
+
+      if (token) {
+        setAccessToken(token)
+        localStorage.setItem("claimly_token", token)
+
+        const rawUser = authData.user;
+        const userData: User = {
+          id: rawUser.id,
+          email: rawUser.email,
+          role: rawUser.user_metadata?.role,
+          full_name: rawUser.user_metadata?.full_name,
+          institution_id: rawUser.user_metadata?.institution_id,
+        };
+
+        setUser(userData)
+        localStorage.setItem("claimly_user", JSON.stringify(userData))
+      }
+
       toast.success("Sign Up Berhasil", {
         description: "Akun Anda telah berhasil dibuat. Silakan cek email untuk verifikasi.",
       })
 
-      return result.data.session?.access_token || null
+      return token || null
     } catch (error: any) {
       if (error.message === "Failed to fetch") {
         toast.error("Masalah Jaringan", { description: "Tidak dapat terhubung ke server." })
