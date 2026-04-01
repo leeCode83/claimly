@@ -24,8 +24,9 @@ export async function GET(request: NextRequest) {
             ...result
         }, { status: 200 });
 
-    } catch (err: any) {
-        return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: err.status || 500 });
+    } catch (err) {
+        const error = err as Error & { status?: number };
+        return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: error.status || 500 });
     }
 }
 
@@ -47,13 +48,14 @@ export async function POST(request: NextRequest) {
         const data = await claimService.submitClaim(body, user.id);
 
         return NextResponse.json({
-            message: "Klaim berhasil diajukan dan ZKP proof telah digenerate",
+            message: "Klaim berhasil diajukan dengan ZKP proof dari client",
             data
         }, { status: 201 });
 
-    } catch (err: any) {
-        const response: any = { error: err.message || 'Internal Server Error' };
-        if (err.claim_id) response.claim_id = err.claim_id;
-        return NextResponse.json(response, { status: err.status || 500 });
+    } catch (err) {
+        const error = err as Error & { status?: number; claim_id?: string };
+        const response: Record<string, string | undefined> = { error: error.message || 'Internal Server Error' };
+        if (error.claim_id) response.claim_id = error.claim_id;
+        return NextResponse.json(response, { status: error.status || 500 });
     }
 }

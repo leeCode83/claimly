@@ -43,10 +43,11 @@ export async function GET(request: NextRequest) {
             ...result,
         }, { status: 200 });
 
-    } catch (err: any) {
+    } catch (err) {
+        const error = err as Error & { status?: number };
         return NextResponse.json(
-            { error: err.message || 'Internal Server Error' },
-            { status: err.status || 500 }
+            { error: error.message || 'Internal Server Error' },
+            { status: error.status || 500 }
         );
     }
 }

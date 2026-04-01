@@ -5,7 +5,7 @@ import redis from "@/lib/redis";
 
 export async function GET(request: NextRequest){
     try {
-        const {supabase, user, error: authError} = await getSupabaseServer(request);
+        const {supabase, user} = await getSupabaseServer(request);
 
         if(!user){
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -35,10 +35,11 @@ export async function GET(request: NextRequest){
             message: `Berhasil mengambil daftar polis`,
             ...result
         }, { status: 200 });
-    } catch (err: any) {
+    } catch (err) {
+        const error = err as Error & { status?: number };
         return NextResponse.json(
-            { error: err.message || 'Internal Server Error' },
-            { status: err.status || 500 }
+            { error: error.message || 'Internal Server Error' },
+            { status: error.status || 500 }
         );
     }
 }
@@ -61,12 +62,11 @@ export async function POST(request: NextRequest) {
             data: data
         }, { status: 201 });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (err: any) {
+    } catch (err) {
+        const error = err as Error & { status?: number };
         return NextResponse.json(
-            { error: err.message || 'Internal Server Error' },
-            { status: err.status || 500 }
+            { error: error.message || 'Internal Server Error' },
+            { status: error.status || 500 }
         );
     }
 }
-

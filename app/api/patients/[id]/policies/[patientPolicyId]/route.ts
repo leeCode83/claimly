@@ -3,7 +3,17 @@ import { getSupabaseServer } from "@/supabase-config";
 import { UserService } from "@/service/user/user.service";
 import { PatientService } from "@/service/patient/patient.service";
 
-function checkPatientAccess(requesterUserId: string, requesterProfile: any, patient: any): string | null {
+interface Profile {
+    role: string;
+    institution_id?: string;
+}
+
+interface Patient {
+    hospital_id: string;
+    user_id: string | null;
+}
+
+function checkPatientAccess(requesterUserId: string, requesterProfile: Profile, patient: Patient): string | null {
     if (requesterProfile.role === 'hospital_staff') {
         if (patient.hospital_id !== requesterProfile.institution_id) {
             return 'Forbidden: Anda hanya dapat mengakses pasien dari institusi Anda';
@@ -41,14 +51,15 @@ export async function GET(
         const requesterProfile = await userService.getMe(user.id);
         const patient = await patientService.getPatientById(patientId);
 
-        const accessError = checkPatientAccess(user.id, requesterProfile, patient);
+        const accessError = checkPatientAccess(user.id, requesterProfile as unknown as Profile, patient as unknown as Patient);
         if (accessError) return NextResponse.json({ error: accessError }, { status: 403 });
 
         const data = await patientService.getPatientPolicyById(patientId, patientPolicyId);
 
         return NextResponse.json({ data }, { status: 200 });
 
-    } catch (err: any) {
-        return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: err.status || 500 });
+    } catch (err) {
+        const error = err as Error & { status?: number };
+        return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: error.status || 500 });
     }
 }

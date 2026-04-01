@@ -13,22 +13,28 @@ export const useUsers = (token?: string | null) => {
 
     /**
      * Helper to create request headers including the bearer token if available.
+     * @param isJson Boolean for Content-Type
+     * @param overrideToken Optional token to override the hook's state token
      */
-    const getHeaders = (isJson: boolean = true) => {
+    const getHeaders = (isJson: boolean = true, overrideToken?: string | null) => {
         const headers: Record<string, string> = {};
         if (isJson) headers["Content-Type"] = "application/json";
-        if (token) headers["Authorization"] = `Bearer ${token}`;
+        
+        const authToken = overrideToken || token;
+        if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+        
         return headers;
     };
 
     /**
      * Fetch current user's profile information.
+     * @param overrideToken Optional token to use instead of the one passed to the hook.
      */
-    const getMe = useCallback(async () => {
+    const getMe = useCallback(async (overrideToken?: string | null) => {
         setIsLoading(true);
         try {
             const response = await fetch("/api/users/me", {
-                headers: getHeaders(false),
+                headers: getHeaders(false, overrideToken),
             });
             const result = await response.json();
 
