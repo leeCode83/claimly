@@ -136,9 +136,21 @@ export class ClaimService {
             throw err;
         }
 
-        // 4. Simpan ZKP Proof jika disediakan oleh client
+        // 4. Verifikasi dan Simpan ZKP Proof jika disediakan oleh client
         if (payload.proof && payload.public_signals) {
             try {
+                // Verifikasi proof secara kriptografis di sisi server
+                const { isValid } = await verifyProof({
+                    publicSignals: payload.public_signals,
+                    proof: payload.proof
+                });
+
+                if (!isValid) {
+                    const err: any = new Error("Verifikasi ZKP Proof gagal: Bukti tidak valid atau tidak sesuai dengan data klaim.");
+                    err.status = 400;
+                    throw err;
+                }
+
                 const { error: proofError } = await this.supabase
                     .from('zkp_proofs')
                     .insert({
