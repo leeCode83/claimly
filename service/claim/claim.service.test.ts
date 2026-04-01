@@ -4,6 +4,7 @@ import { generateProof, verifyProof, getMerklePath } from '@/service/zkp';
 jest.mock('@/service/zkp', () => ({
     generateProof: jest.fn(),
     verifyProof: jest.fn(),
+    validatePublicSignals: jest.fn().mockReturnValue({ isValid: true }),
     getMerklePath: jest.fn(),
 }));
 
@@ -28,6 +29,10 @@ describe('ClaimService', () => {
             from: jest.fn(() => mockBuilder),
             rpc: jest.fn(),
         };
+
+        // Default mock for validatePublicSignals
+        const { validatePublicSignals } = require('@/service/zkp');
+        (validatePublicSignals as jest.Mock).mockReturnValue({ isValid: true });
 
         claimService = new ClaimService(supabaseMock as any);
     });
@@ -61,6 +66,10 @@ describe('ClaimService', () => {
             default_max_coverage: 1000000, 
             icd9_integer_encoding: 456 
         };
+
+        // Mock signal validation
+        const { validatePublicSignals } = require('@/service/zkp');
+        (validatePublicSignals as jest.Mock).mockReturnValue({ isValid: true });
 
         // Mock verifyProof to return true
         (verifyProof as jest.Mock).mockResolvedValue({ isValid: true });
@@ -224,10 +233,19 @@ describe('ClaimService', () => {
             const mockClaim = {
                 id: 'claim-123',
                 status: 'submitted',
+                claim_amount: 500000,
+                procedure_date_encoded: 20260320,
+                procedures: { icd9_integer_encoding: 456, default_max_coverage: 1000000 },
+                patient_policies: {
+                    insurance_policies: {
+                        approved_diagnosis_root: 'rootA',
+                        approved_procedure_root: 'rootB'
+                    }
+                },
                 zkp_proofs: {
                     id: 'proof-456',
                     proof_json: {},
-                    public_signals: [],
+                    public_signals: ['1', '20260320', '500000', 'rootA', 'rootB', '1000000'],
                     verification_result: null
                 }
             };
@@ -265,11 +283,20 @@ describe('ClaimService', () => {
         it('berhasil menyetujui klaim setelah verifikasi ZKP', async () => {
             const mockClaim = {
                 id: 'claim-123',
+                claim_amount: 500000,
+                procedure_date_encoded: 20260320,
                 zkp_proofs: {
                     id: 'proof-456',
                     proof_json: {},
-                    public_signals: [],
+                    public_signals: ['1', '20260320', '500000', 'rootA', 'rootB', '1000000'],
                     verification_result: null
+                },
+                procedures: { icd9_integer_encoding: 456, default_max_coverage: 1000000 },
+                patient_policies: {
+                    insurance_policies: { 
+                        approved_diagnosis_root: 'rootA', 
+                        approved_procedure_root: 'rootB' 
+                    }
                 }
             };
 
@@ -279,6 +306,9 @@ describe('ClaimService', () => {
                 single: jest.fn().mockResolvedValue({ data: mockClaim, error: null }),
                 update: jest.fn().mockReturnThis()
             }));
+
+            // Mock getClaimById to return the same mock data for consistency within approveClaim
+            claimService.getClaimById = jest.fn().mockResolvedValue(mockClaim);
 
             supabaseMock.rpc.mockResolvedValue({ error: null });
             (verifyProof as jest.Mock).mockResolvedValue({ isValid: true });
@@ -302,11 +332,20 @@ describe('ClaimService', () => {
         it('harus melempar error jika ZKP proof tidak valid', async () => {
             const mockClaim = {
                 id: 'claim-123',
+                claim_amount: 500000,
+                procedure_date_encoded: 20260320,
                 zkp_proofs: {
                     id: 'proof-456',
                     proof_json: {},
-                    public_signals: [],
+                    public_signals: ['1', '20260320', '500000', 'rootA', 'rootB', '1000000'],
                     verification_result: null
+                },
+                procedures: { icd9_integer_encoding: 456, default_max_coverage: 1000000 },
+                patient_policies: {
+                    insurance_policies: { 
+                        approved_diagnosis_root: 'rootA', 
+                        approved_procedure_root: 'rootB' 
+                    }
                 }
             };
 
@@ -317,9 +356,13 @@ describe('ClaimService', () => {
                 update: jest.fn().mockReturnThis()
             }));
 
-            (verifyProof as jest.Mock).mockResolvedValue({ isValid: false });
+            // Mock getClaimById for internal call
+            claimService.getClaimById = jest.fn().mockResolvedValue(mockClaim);
 
-            await expect(claimService.approveClaim('claim-123', reviewerId)).rejects.toThrow('Klaim tidak dapat disetujui: ZKP proof tidak valid');
+            const { validatePublicSignals } = require('@/service/zkp');
+            (validatePublicSignals as jest.Mock).mockReturnValue({ isValid: false, reason: 'Test validation failed' });
+
+            await expect(claimService.approveClaim('claim-123', reviewerId)).rejects.toThrow('Integritas Proof Gagal: Test validation failed');
         });
     });
 

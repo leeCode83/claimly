@@ -1,4 +1,23 @@
 import 'jest';
+import fs from 'fs';
+import path from 'path';
+import redis from '../lib/redis';
+
+// Load .env manual for integration test environment
+const envPath = path.resolve(process.cwd(), '.env');
+if (fs.existsSync(envPath)) {
+    const envLines = fs.readFileSync(envPath, 'utf-8').split(/\r?\n/);
+    envLines.forEach(line => {
+        const trimmedLine = line.trim();
+        if (trimmedLine && !trimmedLine.startsWith('#')) {
+            const [key, ...valueParts] = trimmedLine.split('=');
+            if (key && valueParts.length > 0) {
+                const value = valueParts.join('=').trim().replace(/^"|"$/g, '');
+                process.env[key.trim()] = value;
+            }
+        }
+    });
+}
 
 /**
  * Integration test for the main flow of the Claimly project.
@@ -17,11 +36,27 @@ async function apiRequest(endpoint: string, method: string = 'GET', body: any = 
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
+  let url = `${BASE_URL}${endpoint}`;
+  const options: RequestInit = {
     method,
     headers,
-    body: body ? JSON.stringify(body) : null,
-  });
+  };
+
+  if (body) {
+    if (method === 'GET' || method === 'HEAD') {
+      const params = new URLSearchParams();
+      for (const key in body) {
+        if (body[key] !== undefined && body[key] !== null) {
+          params.append(key, String(body[key]));
+        }
+      }
+      url += `?${params.toString()}`;
+    } else {
+      options.body = JSON.stringify(body);
+    }
+  }
+
+  const response = await fetch(url, options);
 
   const data = await response.json();
   if (!response.ok) {
@@ -31,6 +66,22 @@ async function apiRequest(endpoint: string, method: string = 'GET', body: any = 
 }
 
 describe('Claimly Integration Flow', () => {
+  // Fail-fast mechanism: skip subsequent tests if one fails
+  let previousTestFailed = false;
+
+  beforeEach(() => {
+    if (previousTestFailed) {
+      throw new Error('Skipping test due to previous failure (Fail-Fast)');
+    }
+  });
+
+  afterEach(() => {
+    const state = (expect as any).getState();
+    if (state.error) {
+      previousTestFailed = true;
+    }
+  });
+
   // Authentication data
   const staffCredentials = {
     email: 'ale.staff@rs-sehat.com',
@@ -78,6 +129,16 @@ describe('Claimly Integration Flow', () => {
     expect(status).toBe(201);
     expect(data.data.user).toBeDefined();
     newPatientUserId = data.data.user.id;
+  });
+
+  test('should login as the new patient', async () => {
+    const { status, data } = await apiRequest('/api/auth/signin', 'POST', {
+      email: newPatientUser.email,
+      password: newPatientUser.password,
+    });
+    expect(status).toBe(200);
+    expect(data.data.session?.access_token).toBeDefined();
+    patientUserToken = data.data.session.access_token;
   });
 
   test('should login as hospital_staff', async () => {
@@ -176,13 +237,35 @@ describe('Claimly Integration Flow', () => {
     medicalRecordId = data.data.id;
   });
 
-  test('should submit a claim for the patient', async () => {
-    const claimPayload = {
+  test('should submit a claim for the patient with client-side ZKP generation', async () => {
+    // 1. Persiapan Data (Get ZKP Preparation Data)
+    const prepPayload = {
       patient_policy_id: patientPolicyId,
       medical_record_id: medicalRecordId,
       procedure_id: procedureIds[1],
       procedure_date: '2026-03-20',
       claim_amount: 1500000,
+    };
+
+    const prepRes = await apiRequest('/api/claims/prepare', 'GET', prepPayload, staffToken);
+    if (prepRes.status !== 200) throw new Error(`ZKP preparation failed: ${prepRes.errorMsg}`);
+    
+    const prepData = prepRes.data.data;
+    expect(prepData.diagnosisCode).toBeDefined();
+
+    // 2. Simulasi Generate Proof di Sisi Client (di sini dijalankan oleh Node/Jest)
+    // Import generateProof dinamis agar tidak bermasalah dengan environment
+    const { generateProof } = await import('../service/zkp/proof');
+    
+    console.log('Generating integration proof (this may take a while)...');
+    const { proof, publicSignals } = await generateProof(prepData);
+    expect(proof).toBeDefined();
+
+    // 3. Submisi Klaim Akhir (Post Claim with Proof)
+    const claimPayload = {
+      ...prepPayload,
+      proof,
+      public_signals: publicSignals
     };
 
     const { status, data, errorMsg } = await apiRequest('/api/claims', 'POST', claimPayload, staffToken);
@@ -207,5 +290,121 @@ describe('Claimly Integration Flow', () => {
     const { status, data } = await apiRequest(`/api/claims/${claimId}/approve`, 'PATCH', approvePayload, reviewerToken);
     expect(status).toBe(200);
     expect(data.status).toBe('approved');
+  });
+
+  /**
+   * Phase 5: Negative Scenarios (Failures & Security)
+   * We wrap these in a describe to separate from the main happy path.
+   * Logic: These tests run even if previousTestFailed is true, as long as dependencies (tokens) are available.
+   */
+  describe('Security & Logic Failures', () => {
+    test('should reject login with invalid password', async () => {
+      const { status } = await apiRequest('/api/auth/signin', 'POST', {
+        email: reviewerCredentials.email,
+        password: 'wrongpassword',
+      });
+      expect(status).toBe(401); 
+    });
+
+    test('should reject policy creation by a patient (Authorization)', async () => {
+      const policyPayload = {
+        policy_name: 'Illegal Policy',
+        max_coverage_amount: 1000,
+        valid_from: '2024-01-01',
+        valid_until: '2027-12-31',
+        diagnosis_codes: diagnosisCodes,
+        procedure_codes: procedureIds,
+      };
+      const { status } = await apiRequest('/api/policies', 'POST', policyPayload, patientUserToken);
+      expect(status).toBe(403);
+    });
+
+    test('should reject claim approval by a patient (Authorization)', async () => {
+      const { status } = await apiRequest(`/api/claims/${claimId}/approve`, 'PATCH', { notes: 'Hack' }, patientUserToken);
+      expect(status).toBe(403);
+    });
+
+    test('should reject claim with manipulated ZKP proof', async () => {
+      // 1. Prepare data
+      const prepPayload = {
+        patient_policy_id: patientPolicyId,
+        medical_record_id: medicalRecordId,
+        procedure_id: procedureIds[0],
+        procedure_date: '2026-03-25',
+        claim_amount: 500000,
+      };
+      const prepRes = await apiRequest('/api/claims/prepare', 'GET', prepPayload, staffToken);
+      const prepData = prepRes.data.data;
+
+      // 2. Generate valid proof first
+      const { generateProof } = await import('../service/zkp/proof');
+      const { proof, publicSignals } = await generateProof(prepData);
+
+      // 3. Manipulate proof (change one value in pi_a)
+      const tamperedProof = JSON.parse(JSON.stringify(proof));
+      tamperedProof.pi_a[0] = "1234567890"; // Invalid value
+
+      // 4. Submit tampered proof
+      const { status, errorMsg } = await apiRequest('/api/claims', 'POST', {
+        ...prepPayload,
+        proof: tamperedProof,
+        public_signals: publicSignals
+      }, staffToken);
+
+      expect(status).toBe(400);
+      console.log('✅ Successfully rejected tampered ZKP proof');
+    });
+
+    test('should reject claim mismatching public signals', async () => {
+        // 1. Prepare data
+        const prepPayload = {
+          patient_policy_id: patientPolicyId,
+          medical_record_id: medicalRecordId,
+          procedure_id: procedureIds[0],
+          procedure_date: '2026-03-25',
+          claim_amount: 500000,
+        };
+        const prepRes = await apiRequest('/api/claims/prepare', 'GET', prepPayload, staffToken);
+        const prepData = prepRes.data.data;
+  
+        // 2. Generate valid proof
+        const { generateProof } = await import('../service/zkp/proof');
+        const { proof, publicSignals } = await generateProof(prepData);
+  
+        // 3. Attempt to change claim_amount in body (e.g. to 1M) while proof is for 500k
+        const { status } = await apiRequest('/api/claims', 'POST', {
+          ...prepPayload,
+          claim_amount: 1000000, // This mismatch should be caught
+          proof,
+          public_signals: publicSignals
+        }, staffToken);
+  
+        expect(status).toBe(400);
+        console.log('✅ Successfully rejected signal-body mismatch');
+    });
+
+    test('should reject claim for non-existent medical record', async () => {
+      const { status } = await apiRequest('/api/claims', 'POST', {
+        patient_policy_id: patientPolicyId,
+        medical_record_id: '00000000-0000-0000-0000-000000000000',
+        procedure_id: procedureIds[0],
+        procedure_date: '2026-03-25',
+        claim_amount: 1000,
+        proof: {}, 
+        public_signals: []
+      }, staffToken);
+
+      expect(status).toBe(404);
+    });
+  });
+
+  // Clean up open handles after all tests
+  afterAll(async () => {
+    try {
+      await redis.quit();
+      console.log('✅ Redis connection closed for integration test');
+    } catch (err) {
+      console.log('⚠ Error closing Redis connection:', err);
+    }
   });
 });

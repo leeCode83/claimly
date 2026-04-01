@@ -1,5 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
-import { generateProof, verifyProof, buildMerkleTree, getMerklePath } from "@/service/zkp";
+import { generateProof, verifyProof, validatePublicSignals, buildMerkleTree, getMerklePath } from "@/service/zkp";
 
 function encodeDate(dateStr: string): number {
     // encode tanggal ke format YYYYMMDD integer
@@ -139,7 +139,22 @@ export class ClaimService {
         // 4. Verifikasi dan Simpan ZKP Proof jika disediakan oleh client
         if (payload.proof && payload.public_signals) {
             try {
-                // Verifikasi proof secara kriptografis di sisi server
+                // 4.1 Validasi Konsistensi Data dengan Public Signals ZKP
+                const validation = validatePublicSignals(payload.public_signals, {
+                    claimAmount: payload.claim_amount,
+                    procedureDate: procedure_date_encoded,
+                    approvedDiagnosisRoot: policy.approved_diagnosis_root,
+                    approvedProcedureRoot: policy.approved_procedure_root,
+                    maxCoverageAmount: procedure.default_max_coverage
+                });
+
+                if (!validation.isValid) {
+                    const err: any = new Error(`Integritas data ZKP gagal: ${validation.reason}`);
+                    err.status = 400;
+                    throw err;
+                }
+
+                // 4.2 Verifikasi proof secara kriptografis di sisi server
                 const { isValid } = await verifyProof({
                     publicSignals: payload.public_signals,
                     proof: payload.proof
@@ -280,6 +295,23 @@ export class ClaimService {
         const zkpProof = (claim as any).zkp_proofs;
         if (zkpProof && zkpProof.verification_result === null) {
             try {
+                // Re-validate consistency before auto-verify
+                const policyData = (claim as any).patient_policies?.insurance_policies;
+                const policy = Array.isArray(policyData) ? policyData[0] : policyData;
+                const procedure = (claim as any).procedures;
+
+                const validation = validatePublicSignals(zkpProof.public_signals, {
+                    claimAmount: claim.claim_amount,
+                    procedureDate: claim.procedure_date_encoded,
+                    approvedDiagnosisRoot: policy.approved_diagnosis_root,
+                    approvedProcedureRoot: policy.approved_procedure_root,
+                    maxCoverageAmount: procedure.default_max_coverage
+                });
+
+                if (!validation.isValid) {
+                    throw new Error(validation.reason);
+                }
+
                 const { isValid } = await verifyProof({
                     proof: zkpProof.proof_json,
                     publicSignals: zkpProof.public_signals
@@ -328,6 +360,26 @@ export class ClaimService {
         let isValid = zkpProof.verification_result;
         if (isValid === null) {
             try {
+                // Fetch full claim data for consistency check
+                const fullClaim = await this.getClaimById(claimId);
+                const policyData = (fullClaim as any).patient_policies?.insurance_policies;
+                const policy = Array.isArray(policyData) ? policyData[0] : policyData;
+                const proc = (fullClaim as any).procedures;
+
+                const validation = validatePublicSignals(zkpProof.public_signals, {
+                    claimAmount: fullClaim.claim_amount,
+                    procedureDate: fullClaim.procedure_date_encoded,
+                    approvedDiagnosisRoot: policy.approved_diagnosis_root,
+                    approvedProcedureRoot: policy.approved_procedure_root,
+                    maxCoverageAmount: proc.default_max_coverage
+                });
+
+                if (!validation.isValid) {
+                    const err: any = new Error(`Integritas Proof Gagal: ${validation.reason}`);
+                    err.status = 400;
+                    throw err;
+                }
+
                 const result = await verifyProof({
                     proof: zkpProof.proof_json,
                     publicSignals: zkpProof.public_signals
