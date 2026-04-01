@@ -57,7 +57,9 @@ export class ClaimService {
         medical_record_id: string,
         procedure_id: string,
         procedure_date: string,
-        claim_amount: number
+        claim_amount: number,
+        proof?: any,
+        public_signals?: string[]
     }, submittedBy: string) {
         // Validasi input
         if (!payload.patient_policy_id || !payload.medical_record_id || !payload.procedure_id || !payload.procedure_date || !payload.claim_amount) {
@@ -69,27 +71,24 @@ export class ClaimService {
         const procedure_date_encoded = encodeDate(payload.procedure_date);
 
         // 1. Ambil dependensi data
-        const [mrRes, ppRes, procRes] = await Promise.all([
-            this.supabase.from('medical_records').select('*, diagnosis:diagnoses(*)').eq('id', payload.medical_record_id).single(),
-            this.supabase.from('patient_policies').select('*, insurance_policies(*)').eq('id', payload.patient_policy_id).single(),
-            this.supabase.from('procedures').select('*').eq('id', payload.procedure_id).single()
-        ]);
-
-        if (mrRes.error) { const err: any = new Error(`Gagal ambil medical record: ${mrRes.error.message}`); err.status = 404; throw err; }
-        if (ppRes.error) { const err: any = new Error(`Gagal ambil patient policy: ${ppRes.error.message}`); err.status = 404; throw err; }
-        if (procRes.error) { const err: any = new Error(`Gagal ambil procedure: ${procRes.error.message}`); err.status = 404; throw err; }
-
-        const medRecord = mrRes.data;
-        const patientPolicy = ppRes.data;
-        const procedure = procRes.data;
+        const { medRecord, patientPolicy, procedure } = await this.getClaimDependencies(
+            payload.medical_record_id,
+            payload.patient_policy_id,
+            payload.procedure_id
+        );
         
-        // Handle case where Supabase might return the joined policy as an array or object
         const policyData = patientPolicy.insurance_policies;
         const policy = Array.isArray(policyData) ? policyData[0] : policyData;
 
         if (!policy || !policy.approved_diagnosis_root || !policy.approved_procedure_root) {
-            console.log(policy)
             const err: any = new Error("Polis belum memiliki approved_diagnosis_root atau approved_procedure_root");
+            err.status = 400;
+            throw err;
+        }
+
+        const medDiagnosis = Array.isArray(medRecord.diagnosis) ? medRecord.diagnosis[0] : medRecord.diagnosis;
+        if (!medDiagnosis) {
+            const err: any = new Error("Medical record tidak memiliki data diagnosa");
             err.status = 400;
             throw err;
         }
@@ -137,42 +136,63 @@ export class ClaimService {
             throw err;
         }
 
-        try {
-            // 4. Bangun Input ZKP dan Generate proof
-            const zkpInput = await this.buildZKPInputPayload(payload, medRecord, policy, patientPolicy, procedure);
-            const proofData = await generateProof(zkpInput);
+        // 4. Simpan ZKP Proof jika disediakan oleh client
+        if (payload.proof && payload.public_signals) {
+            try {
+                const { error: proofError } = await this.supabase
+                    .from('zkp_proofs')
+                    .insert({
+                        claim_id: claim.id,
+                        proof_json: payload.proof,
+                        public_signals: payload.public_signals
+                    });
 
-            // 5. Insert ZKP Proof
-            const { error: proofError } = await this.supabase
-                .from('zkp_proofs')
-                .insert({
-                    claim_id: claim.id,
-                    proof_json: proofData.proof,
-                    public_signals: proofData.publicSignals
-                });
+                if (proofError) {
+                    throw new Error(`Gagal menyimpan proof: ${proofError.message}`);
+                }
 
-            if (proofError) {
-                throw new Error(proofError.message);
+                // 5. Update status claim jadi submitted
+                await this.supabase.from('claims').update({ status: 'submitted' }).eq('id', claim.id);
+                claim.status = 'submitted';
+            } catch (err: any) {
+                await this.supabase.from('claims').update({ status: 'Fail generate proof' }).eq('id', claim.id);
+                claim.status = 'Fail generate proof';
+                throw err;
             }
-
-            // 6. Jika berhasil, update status claim jadi submitted
-            await this.supabase.from('claims').update({ status: 'submitted' }).eq('id', claim.id);
-            claim.status = 'submitted';
-            
-        } catch (zkpErr: any) {
-            // Jika gagal buat proof, update status jadi Fail generate proof
-            await this.supabase.from('claims').update({ status: 'Fail generate proof' }).eq('id', claim.id);
-            claim.status = 'Fail generate proof';
-            
-            const err: any = new Error(`ZKP proof generation gagal: ${zkpErr.message}`);
-            err.status = 500;
-            throw err;
         }
 
         return claim;
     }
 
-    private async buildZKPInputPayload(payload: any, medRecord: any, policy: any, patientPolicy: any, procedure: any) {
+    public async getZKPPreparationData(payload: {
+        patient_policy_id: string,
+        medical_record_id: string,
+        procedure_id: string,
+        procedure_date: string,
+        claim_amount: number
+    }) {
+        // Ambil dependensi data
+        const { medRecord, patientPolicy, procedure } = await this.getClaimDependencies(
+            payload.medical_record_id,
+            payload.patient_policy_id,
+            payload.procedure_id
+        );
+        const policyData = patientPolicy.insurance_policies;
+        const policy = Array.isArray(policyData) ? policyData[0] : policyData;
+
+        if (!policy || !policy.approved_diagnosis_root || !policy.approved_procedure_root) {
+            const err: any = new Error("Polis belum memiliki approved_diagnosis_root atau approved_procedure_root");
+            err.status = 400;
+            throw err;
+        }
+
+        const medDiagnosis = Array.isArray(medRecord.diagnosis) ? medRecord.diagnosis[0] : medRecord.diagnosis;
+        if (!medDiagnosis) {
+            const err: any = new Error("Medical record tidak memiliki data diagnosa");
+            err.status = 400;
+            throw err;
+        }
+
         // Ambil semua leaf diagnosis dan prosedur secara paralel dari policy
         const [diagLeavesRes, procLeavesRes] = await Promise.all([
              this.supabase.from('policy_covered_diagnoses').select('*, diagnoses(icd10_integer_encoding)').eq('policy_id', policy.id),
@@ -183,21 +203,27 @@ export class ClaimService {
         const procLeaves = procLeavesRes.data || [];
 
         // Build leaf data untuk getMerklePath
-        const diagLeafData = diagLeaves.map((l: any) => ({
-            index: l.merkle_leaf_index,
-            hash: l.merkle_leaf_hash,
-            encoding: l.diagnoses.icd10_integer_encoding
-        }));
+        const diagLeafData = diagLeaves.map((l: any) => {
+            const d = Array.isArray(l.diagnoses) ? l.diagnoses[0] : l.diagnoses;
+            return {
+                index: l.merkle_leaf_index,
+                hash: l.merkle_leaf_hash,
+                encoding: d.icd10_integer_encoding
+            };
+        });
 
-        const procLeafData = procLeaves.map((l: any) => ({
-            index: l.merkle_leaf_index,
-            hash: l.merkle_leaf_hash,
-            encoding: l.procedures.icd9_integer_encoding
-        }));
+        const procLeafData = procLeaves.map((l: any) => {
+            const p = Array.isArray(l.procedures) ? l.procedures[0] : l.procedures;
+            return {
+                index: l.merkle_leaf_index,
+                hash: l.merkle_leaf_hash,
+                encoding: p.icd9_integer_encoding
+            };
+        });
 
         // Get Merkle path untuk diagnosis pasien
         const diagMerklePath = await getMerklePath({
-            encoding: medRecord.diagnosis.icd10_integer_encoding,
+            encoding: medDiagnosis.icd10_integer_encoding,
             allLeafData: diagLeafData
         });
 
@@ -208,7 +234,7 @@ export class ClaimService {
         });
 
         return {
-            diagnosisCode: medRecord.diagnosis.icd10_integer_encoding,
+            diagnosisCode: medDiagnosis.icd10_integer_encoding,
             diagnosisDate: medRecord.diagnosis_date_encoded,
             diagnosisMerklePath: diagMerklePath.pathElements,
             diagnosisPathIndices: diagMerklePath.pathIndices,
@@ -351,5 +377,29 @@ export class ClaimService {
         }
 
         return { claim_id: claimId, status: 'rejected' };
+    }
+
+    private async getClaimDependencies(medical_record_id: string, patient_policy_id: string, procedure_id: string) {
+        const [mrRes, ppRes, procRes] = await Promise.all([
+            this.supabase.from('medical_records')
+                .select('diagnosis_date_encoded, diagnosis:diagnoses(icd10_integer_encoding)')
+                .eq('id', medical_record_id).single(),
+            this.supabase.from('patient_policies')
+                .select('start_date, end_date, insurance_policies(id, approved_diagnosis_root, approved_procedure_root)')
+                .eq('id', patient_policy_id).single(),
+            this.supabase.from('procedures')
+                .select('icd9_integer_encoding, default_max_coverage')
+                .eq('id', procedure_id).single()
+        ]);
+
+        if (mrRes.error) { const err: any = new Error(`Gagal ambil medical record: ${mrRes.error.message}`); err.status = 404; throw err; }
+        if (ppRes.error) { const err: any = new Error(`Gagal ambil patient policy: ${ppRes.error.message}`); err.status = 404; throw err; }
+        if (procRes.error) { const err: any = new Error(`Gagal ambil procedure: ${procRes.error.message}`); err.status = 404; throw err; }
+
+        return {
+            medRecord: mrRes.data,
+            patientPolicy: ppRes.data,
+            procedure: procRes.data
+        };
     }
 }

@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
         const data = await claimService.submitClaim(body, user.id);
 
         return NextResponse.json({
-            message: "Klaim berhasil diajukan dan ZKP proof telah digenerate",
+            message: "Klaim berhasil diajukan dengan ZKP proof dari client",
             data
         }, { status: 201 });
 

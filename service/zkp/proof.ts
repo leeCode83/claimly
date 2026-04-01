@@ -1,70 +1,71 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import * as snarkjs from 'snarkjs';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import { createClient } from '@supabase/supabase-js';
 import { GenerateProofInput, GenerateProofOutput, VerifyProofInput, VerifyProofOutput } from './types';
 
+// Environment detection
+const isBrowser = typeof window !== 'undefined';
+
 const ARTIFACTS_BUCKET = 'zkp-artifacts';
-const TEMP_ARTIFACTS_DIR = path.join(os.tmpdir(), 'claimly-zkp-artifacts');
-
-// Initialize Supabase client for storage access. 
-// Use SERVICE_ROLE_KEY if available for private bucket access.
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_KEY!
-);
-
-const artifactDownloadPromises: Record<string, Promise<string>> = {};
 
 /**
- * Resets the local cache of artifact download promises.
- * Only intended for use in tests to clean up state.
+ * Supabase client for artifact access.
+ * Server-side: uses SERVICE_ROLE_KEY if available for private access (during transitions).
+ * Client-side: uses public URL (assuming bucket is public).
  */
-export function resetArtifactCache() {
-  for (const key in artifactDownloadPromises) {
-    delete artifactDownloadPromises[key];
-  }
-}
+const getSupabaseClient = () => {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = isBrowser 
+    ? process.env.NEXT_PUBLIC_SUPABASE_KEY! 
+    : (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_KEY!);
+  
+  return createClient(url, key);
+};
+
+const supabase = getSupabaseClient();
 
 /**
- * Ensures a ZKP artifact is available locally in the temporary directory.
- * Downloads from Supabase Storage if missing.
+ * Returns the URL or local path for a ZKP artifact.
+ * Browser: returns the public URL.
+ * Node.js: ensures local availability and returns the file path.
  */
 async function ensureArtifact(fileName: string): Promise<string> {
+  if (isBrowser) {
+    const { data } = supabase.storage.from(ARTIFACTS_BUCKET).getPublicUrl(fileName);
+    return data.publicUrl;
+  }
+
+  // Node.js specific implementation
+  const fs = await import('fs');
+  const path = await import('path');
+  const os = await import('os');
+
+  const TEMP_ARTIFACTS_DIR = path.join(os.tmpdir(), 'claimly-zkp-artifacts');
   const localPath = path.join(TEMP_ARTIFACTS_DIR, fileName);
 
   if (fs.existsSync(localPath)) {
     return localPath;
   }
 
-  if (!artifactDownloadPromises[fileName]) {
-    artifactDownloadPromises[fileName] = (async () => {
-      if (!fs.existsSync(TEMP_ARTIFACTS_DIR)) {
-        fs.mkdirSync(TEMP_ARTIFACTS_DIR, { recursive: true });
-      }
-
-      console.log(`Downloading ZKP artifact: ${fileName}...`);
-      const { data, error } = await supabaseAdmin.storage
-        .from(ARTIFACTS_BUCKET)
-        .download(fileName);
-
-      if (error) {
-        delete artifactDownloadPromises[fileName];
-        throw new Error(`Failed to download ${fileName} from Supabase: ${error.message}`);
-      }
-
-      const arrayBuffer = await data.arrayBuffer();
-      fs.writeFileSync(localPath, Buffer.from(arrayBuffer));
-      console.log(`Successfully cached ${fileName} at ${localPath}`);
-
-      return localPath;
-    })();
+  if (!fs.existsSync(TEMP_ARTIFACTS_DIR)) {
+    fs.mkdirSync(TEMP_ARTIFACTS_DIR, { recursive: true });
   }
 
-  return artifactDownloadPromises[fileName];
+  console.log(`Downloading ZKP artifact: ${fileName}...`);
+  const { data, error } = await supabase.storage
+    .from(ARTIFACTS_BUCKET)
+    .download(fileName);
+
+  if (error) {
+    throw new Error(`Failed to download ${fileName} from Supabase: ${error.message}`);
+  }
+
+  const arrayBuffer = await data.arrayBuffer();
+  fs.writeFileSync(localPath, Buffer.from(arrayBuffer));
+  console.log(`Successfully cached ${fileName} at ${localPath}`);
+
+  return localPath;
 }
 
 export async function generateProof(
@@ -106,8 +107,16 @@ export async function generateProof(
 export async function verifyProof(
   input: VerifyProofInput
 ): Promise<VerifyProofOutput> {
-  const vkeyPath = await ensureArtifact('verification_key.json');
-  const vKey = JSON.parse(fs.readFileSync(vkeyPath, 'utf-8'));
+  let vKey: any;
+
+  if (isBrowser) {
+    const vkeyUrl = await ensureArtifact('verification_key.json');
+    vKey = await fetch(vkeyUrl).then(res => res.json());
+  } else {
+    const fs = await import('fs');
+    const vkeyPath = await ensureArtifact('verification_key.json');
+    vKey = JSON.parse(fs.readFileSync(vkeyPath, 'utf-8'));
+  }
 
   const isValid = await snarkjs.groth16.verify(
     vKey,
