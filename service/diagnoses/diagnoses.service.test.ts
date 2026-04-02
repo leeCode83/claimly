@@ -3,7 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 
 describe('DiagnosesService', () => {
     let service: DiagnosesService;
-    let mockSupabase: any;
+    let mockSupabase: Record<string, jest.Mock>;
 
     beforeEach(() => {
         jest.clearAllMocks();
@@ -48,9 +48,10 @@ describe('DiagnosesService', () => {
             
             try {
                 await service.createDiagnosis(payload);
-            } catch (err: any) {
-                expect(err.message).toBe('Database error');
-                expect(err.status).toBe(400);
+            } catch (err) {
+                const error = err as Error & { status?: number };
+                expect(error.message).toBe('Database error');
+                expect(error.status).toBe(400);
             }
         });
 
@@ -79,9 +80,10 @@ describe('DiagnosesService', () => {
             
             try {
                 await service.getDiagnoses();
-            } catch (err: any) {
-                expect(err.message).toBe('DB Error');
-                expect(err.status).toBe(500);
+            } catch (err) {
+                const error = err as Error & { status?: number };
+                expect(error.message).toBe('DB Error');
+                expect(error.status).toBe(500);
             }
         });
         
@@ -110,9 +112,10 @@ describe('DiagnosesService', () => {
             
             try {
                 await service.getDiagnosisByIcd('A00.0');
-            } catch(err: any) {
-                 expect(err.message).toBe('Not found');
-                 expect(err.status).toBe(404);
+            } catch(err) {
+                 const error = err as Error & { status?: number };
+                 expect(error.message).toBe('Not found');
+                 expect(error.status).toBe(404);
             }
         });
 
@@ -139,9 +142,10 @@ describe('DiagnosesService', () => {
             
             try {
                await service.updateDiagnosisByIcd('A00.0', { description: 'Updated Cholera' });
-            } catch(err: any) {
-               expect(err.message).toBe('Update failed');
-               expect(err.status).toBe(400);
+            } catch(err) {
+               const error = err as Error & { status?: number };
+               expect(error.message).toBe('Update failed');
+               expect(error.status).toBe(400);
             }
         });
 
@@ -165,9 +169,10 @@ describe('DiagnosesService', () => {
             
              try {
                await service.deleteDiagnosisByIcd('A00.0');
-            } catch(err: any) {
-               expect(err.message).toBe('Delete failed');
-               expect(err.status).toBe(400);
+            } catch(err) {
+               const error = err as Error & { status?: number };
+               expect(error.message).toBe('Delete failed');
+               expect(error.status).toBe(400);
             }
         });
 
@@ -224,10 +229,11 @@ describe('DiagnosesService', () => {
              const csvText = 'code,description\nINVALID,Unknown';
              try {
                  await service.processBatchDiagnoses(csvText);
-             } catch(err: any) {
-                 expect(err.message).toBe('Tidak ada data valid yang dapat diinsert');
-                 expect(err.status).toBe(400);
-                 expect(err.invalid_count).toBe(1);
+             } catch(err) {
+                 const error = err as Error & { status?: number, invalid_count?: number };
+                 expect(error.message).toBe('Tidak ada data valid yang dapat diinsert');
+                 expect(error.status).toBe(400);
+                 expect(error.invalid_count).toBe(1);
              }
         });
 
@@ -237,9 +243,10 @@ describe('DiagnosesService', () => {
              
              try {
                  await service.processBatchDiagnoses(csvText);
-             } catch(err: any) {
-                 expect(err.message).toBe('Upsert Error');
-                 expect(err.status).toBe(400);
+             } catch(err) {
+                 const error = err as Error & { status?: number };
+                 expect(error.message).toBe('Upsert Error');
+                 expect(error.status).toBe(400);
              }
         });
     });

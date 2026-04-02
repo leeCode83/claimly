@@ -1,5 +1,24 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 
+interface AppError extends Error {
+    status?: number;
+    invalid_count?: number;
+    invalid_rows?: InvalidDiagnosisRow[];
+}
+
+interface Diagnosis {
+    icd10_code: string;
+    icd10_integer_encoding: number;
+    description: string;
+}
+
+interface InvalidDiagnosisRow {
+    row: number;
+    icd10_code: string;
+    description: string;
+    reason: string;
+}
+
 /**
  * Logika Encoder ICD-10 telah diperbarui untuk mendukung multi-digit desimal:
  * Huruf pertama (A=1, B=2...) * 1000000
@@ -37,7 +56,7 @@ export class DiagnosesService {
 
     async createDiagnosis(payload: { icd10_code: string, description: string }) {
         if (!payload.icd10_code || !payload.description) {
-            const err: any = new Error("Parameter icd10_code dan description wajib diisi");
+            const err = new Error("Parameter icd10_code dan description wajib diisi") as AppError;
             err.status = 400;
             throw err;
         }
@@ -45,7 +64,7 @@ export class DiagnosesService {
         const icd10_integer_encoding = encodeICD10(payload.icd10_code);
         
         if (icd10_integer_encoding === null) {
-            const err: any = new Error("Format icd10_code tidak valid (Contoh: K35, K35.1, M00.00)");
+            const err = new Error("Format icd10_code tidak valid (Contoh: K35, K35.1, M00.00)") as AppError;
             err.status = 400;
             throw err;
         }
@@ -60,7 +79,7 @@ export class DiagnosesService {
             .select();
 
         if (error) {
-            const err: any = new Error(error.message);
+            const err = new Error(error.message) as AppError;
             err.status = 400;
             throw err;
         }
@@ -81,7 +100,7 @@ export class DiagnosesService {
             .range(offset, offset + limit - 1);
 
         if (error) {
-            const err: any = new Error(error.message);
+            const err = new Error(error.message) as AppError;
             err.status = 500;
             throw err;
         }
@@ -105,16 +124,16 @@ export class DiagnosesService {
             .single();
 
         if (error) {
-            const err: any = new Error(error.message);
+            const err = new Error(error.message) as AppError;
             err.status = 404;
             throw err;
         }
         return data;
     }
 
-    async updateDiagnosisByIcd(icdCode: string, payload: any) {
+    async updateDiagnosisByIcd(icdCode: string, payload: Partial<Diagnosis> | null) {
         if (!payload || Object.keys(payload).length === 0) {
-            const err: any = new Error("Body request tidak boleh kosong untuk update");
+            const err = new Error("Body request tidak boleh kosong untuk update") as AppError;
             err.status = 400;
             throw err;
         }
@@ -127,7 +146,7 @@ export class DiagnosesService {
             .single();
 
         if (error) {
-            const err: any = new Error(error.message);
+            const err = new Error(error.message) as AppError;
             err.status = 400;
             throw err;
         }
@@ -144,7 +163,7 @@ export class DiagnosesService {
             .single();
 
         if (error) {
-            const err: any = new Error(error.message);
+            const err = new Error(error.message) as AppError;
             err.status = 400;
             throw err;
         }
@@ -162,7 +181,7 @@ export class DiagnosesService {
         const rows = this.parseCSV(fileText, delimiter);
 
         if (rows.length < 2) {
-            const err: any = new Error("File CSV kosong atau tidak memiliki data (minimal ada header dan 1 baris data)");
+            const err = new Error("File CSV kosong atau tidak memiliki data (minimal ada header dan 1 baris data)") as AppError;
             err.status = 400;
             throw err;
         }
@@ -209,7 +228,7 @@ export class DiagnosesService {
         }
 
         if (validDataToInsert.length === 0) {
-            const err: any = new Error("Tidak ada data valid yang dapat diinsert");
+            const err = new Error("Tidak ada data valid yang dapat diinsert") as AppError;
             err.status = 400;
             err.invalid_count = invalidRows.length;
             err.invalid_rows = invalidRows;
@@ -221,7 +240,7 @@ export class DiagnosesService {
             .upsert(validDataToInsert, { onConflict: 'icd10_integer_encoding' });
 
         if (error) {
-            const err: any = new Error(error.message);
+            const err = new Error(error.message) as AppError;
             err.status = 400;
             throw err;
         }

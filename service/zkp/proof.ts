@@ -1,70 +1,71 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import * as snarkjs from 'snarkjs';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import { createClient } from '@supabase/supabase-js';
 import { GenerateProofInput, GenerateProofOutput, VerifyProofInput, VerifyProofOutput } from './types';
 
+// Environment detection - check inline or via function for best practice and testability
+// const isBrowser = typeof window !== 'undefined';
+
 const ARTIFACTS_BUCKET = 'zkp-artifacts';
-const TEMP_ARTIFACTS_DIR = path.join(os.tmpdir(), 'claimly-zkp-artifacts');
-
-// Initialize Supabase client for storage access. 
-// Use SERVICE_ROLE_KEY if available for private bucket access.
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_KEY!
-);
-
-const artifactDownloadPromises: Record<string, Promise<string>> = {};
 
 /**
- * Resets the local cache of artifact download promises.
- * Only intended for use in tests to clean up state.
+ * Supabase client for artifact access.
+ * Server-side: uses SERVICE_ROLE_KEY if available for private access (during transitions).
+ * Client-side: uses public URL (assuming bucket is public).
  */
-export function resetArtifactCache() {
-  for (const key in artifactDownloadPromises) {
-    delete artifactDownloadPromises[key];
-  }
-}
+const getSupabaseClient = () => {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = typeof window !== 'undefined' 
+    ? process.env.NEXT_PUBLIC_SUPABASE_KEY! 
+    : (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_KEY!);
+  
+  return createClient(url, key);
+};
+
+const supabase = getSupabaseClient();
 
 /**
- * Ensures a ZKP artifact is available locally in the temporary directory.
- * Downloads from Supabase Storage if missing.
+ * Returns the URL or local path for a ZKP artifact.
+ * Browser: returns the public URL.
+ * Node.js: ensures local availability and returns the file path.
  */
 async function ensureArtifact(fileName: string): Promise<string> {
+  if (typeof window !== 'undefined') {
+    const { data } = supabase.storage.from(ARTIFACTS_BUCKET).getPublicUrl(fileName);
+    return data.publicUrl;
+  }
+
+  // Node.js specific implementation
+  const fs = await import('fs');
+  const path = await import('path');
+  const os = await import('os');
+
+  const TEMP_ARTIFACTS_DIR = path.join(os.tmpdir(), 'claimly-zkp-artifacts');
   const localPath = path.join(TEMP_ARTIFACTS_DIR, fileName);
 
   if (fs.existsSync(localPath)) {
     return localPath;
   }
 
-  if (!artifactDownloadPromises[fileName]) {
-    artifactDownloadPromises[fileName] = (async () => {
-      if (!fs.existsSync(TEMP_ARTIFACTS_DIR)) {
-        fs.mkdirSync(TEMP_ARTIFACTS_DIR, { recursive: true });
-      }
-
-      console.log(`Downloading ZKP artifact: ${fileName}...`);
-      const { data, error } = await supabaseAdmin.storage
-        .from(ARTIFACTS_BUCKET)
-        .download(fileName);
-
-      if (error) {
-        delete artifactDownloadPromises[fileName];
-        throw new Error(`Failed to download ${fileName} from Supabase: ${error.message}`);
-      }
-
-      const arrayBuffer = await data.arrayBuffer();
-      fs.writeFileSync(localPath, Buffer.from(arrayBuffer));
-      console.log(`Successfully cached ${fileName} at ${localPath}`);
-
-      return localPath;
-    })();
+  if (!fs.existsSync(TEMP_ARTIFACTS_DIR)) {
+    fs.mkdirSync(TEMP_ARTIFACTS_DIR, { recursive: true });
   }
 
-  return artifactDownloadPromises[fileName];
+  console.log(`Downloading ZKP artifact: ${fileName}...`);
+  const { data, error } = await supabase.storage
+    .from(ARTIFACTS_BUCKET)
+    .download(fileName);
+
+  if (error) {
+    throw new Error(`Failed to download ${fileName} from Supabase: ${error.message}`);
+  }
+
+  const arrayBuffer = await data.arrayBuffer();
+  fs.writeFileSync(localPath, Buffer.from(arrayBuffer));
+  console.log(`Successfully cached ${fileName} at ${localPath}`);
+
+  return localPath;
 }
 
 export async function generateProof(
@@ -97,8 +98,8 @@ export async function generateProof(
       zkeyPath
     );
     return { proof, publicSignals };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
+  } catch (err) {
+    const error = err as Error;
     throw new Error(`Witness generation failed: ${error.message}`);
   }
 }
@@ -106,14 +107,81 @@ export async function generateProof(
 export async function verifyProof(
   input: VerifyProofInput
 ): Promise<VerifyProofOutput> {
-  const vkeyPath = await ensureArtifact('verification_key.json');
-  const vKey = JSON.parse(fs.readFileSync(vkeyPath, 'utf-8'));
+  let vKey: unknown;
+
+  if (typeof window !== 'undefined') {
+    const vkeyUrl = await ensureArtifact('verification_key.json');
+    vKey = await fetch(vkeyUrl).then(res => res.json());
+  } else {
+    const fs = await import('fs');
+    const vkeyPath = await ensureArtifact('verification_key.json');
+    vKey = JSON.parse(fs.readFileSync(vkeyPath, 'utf-8'));
+  }
 
   const isValid = await snarkjs.groth16.verify(
-    vKey,
+    vKey as any,
     input.publicSignals,
     input.proof
   );
 
   return { isValid };
+}
+
+/**
+ * Validates that the public signals from a ZKP proof match the expected data from the request body.
+ * This prevents "Parameter Tampering" where a user submits a valid proof for data A 
+ * but sends data B in the request body.
+ * 
+ * Mapping (Groth16/SnarkJS standard for this circuit):
+ * [0]: claimAmount
+ * [1]: procedureCode
+ * [2]: procedureDate (encoded)
+ * [3]: approvedDiagnosisRoot
+ * [4]: approvedProcedureRoot
+ * [5]: maxCoverageAmount
+ */
+export function validatePublicSignals(
+  publicSignals: string[],
+  expected: {
+    claimAmount: number;
+    procedureDate: number; // already encoded YYYYMMDD
+    approvedDiagnosisRoot: string;
+    approvedProcedureRoot: string;
+    maxCoverageAmount: number;
+  }
+): { isValid: boolean; reason?: string } {
+  // console.log('DEBUG: ZKP Public Signals:', publicSignals);
+  // console.log('DEBUG: Expected Data:', expected);
+
+  // 0. Check circuit output (out signal) - usually at index 0
+  if (BigInt(publicSignals[0]) !== BigInt(1)) {
+    return { isValid: false, reason: `Circuit output signal is not 1 (success). Got: ${publicSignals[0]}` };
+  }
+
+  // 1. Check procedureDate
+  if (BigInt(publicSignals[1]) !== BigInt(expected.procedureDate)) {
+    return { isValid: false, reason: `Procedure date mismatch: expected ${expected.procedureDate}, got ${publicSignals[1]}` };
+  }
+
+  // 2. Check claimAmount
+  if (BigInt(publicSignals[2]) !== BigInt(expected.claimAmount)) {
+    return { isValid: false, reason: `Claim amount mismatch: expected ${expected.claimAmount}, got ${publicSignals[2]}` };
+  }
+
+  // 3. Check approvedDiagnosisRoot
+  if (publicSignals[3] !== expected.approvedDiagnosisRoot) {
+    return { isValid: false, reason: `Diagnosis root mismatch: expected ${expected.approvedDiagnosisRoot}, got ${publicSignals[3]}` };
+  }
+
+  // 4. Check approvedProcedureRoot
+  if (publicSignals[4] !== expected.approvedProcedureRoot) {
+    return { isValid: false, reason: `Procedure root mismatch: expected ${expected.approvedProcedureRoot}, got ${publicSignals[4]}` };
+  }
+
+  // 5. Check maxCoverageAmount
+  if (BigInt(publicSignals[5]) !== BigInt(expected.maxCoverageAmount)) {
+    return { isValid: false, reason: `Max coverage mismatch: expected ${expected.maxCoverageAmount}, got ${publicSignals[5]}` };
+  }
+
+  return { isValid: true };
 }

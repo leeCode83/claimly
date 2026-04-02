@@ -35,10 +35,11 @@ export async function GET(request: NextRequest) {
             message: `Berhasil mengambil daftar institusi`,
             ...result
         }, { status: 200 });
-    } catch (err: any) {
+    } catch (err) {
+        const error = err as Error & { status?: number };
         return NextResponse.json(
-            { error: err.message || 'Internal Server Error' },
-            { status: err.status || 500 }
+            { error: error.message || 'Internal Server Error' },
+            { status: error.status || 500 }
         );
     }
 }
@@ -61,10 +62,11 @@ export async function POST(request: NextRequest) {
             data: data
         }, { status: 201 });
 
-    } catch (err: any) {
+    } catch (err) {
+        const error = err as Error & { status?: number };
         return NextResponse.json(
-            { error: err.message || 'Internal Server Error' },
-            { status: err.status || 500 }
+            { error: error.message || 'Internal Server Error' },
+            { status: error.status || 500 }
         );
     }
 }

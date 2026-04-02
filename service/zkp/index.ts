@@ -1,5 +1,5 @@
 export { buildMerkleTree, getMerklePath } from './merkle';
-export { generateProof, verifyProof } from './proof';
+export { generateProof, verifyProof, validatePublicSignals } from './proof';
 export { initZeroHashes } from './zero-hashes';
 export type {
   BuildMerkleTreeInput,

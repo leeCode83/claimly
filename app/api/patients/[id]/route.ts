@@ -3,8 +3,18 @@ import { getSupabaseServer } from "@/supabase-config";
 import { UserService } from "@/service/user/user.service";
 import { PatientService } from "@/service/patient/patient.service";
 
+interface Profile {
+    role: string;
+    institution_id?: string;
+}
+
+interface Patient {
+    hospital_id: string;
+    user_id: string | null;
+}
+
 // Helper: cek apakah requester berhak mengakses data pasien ini
-async function checkPatientAccess(requesterUserId: string, requesterProfile: any, patient: any): Promise<string | null> {
+async function checkPatientAccess(requesterUserId: string, requesterProfile: Profile, patient: Patient): Promise<string | null> {
     if (requesterProfile.role === 'hospital_staff') {
         // hospital_staff hanya bisa akses pasien dari institusinya
         if (patient.hospital_id !== requesterProfile.institution_id) {
@@ -46,15 +56,16 @@ export async function GET(
         // Ambil data pasien dulu untuk pengecekan akses
         const patient = await patientService.getPatientById(id);
 
-        const accessError = await checkPatientAccess(user.id, requesterProfile, patient);
+        const accessError = await checkPatientAccess(user.id, requesterProfile as unknown as Profile, patient as unknown as Patient);
         if (accessError) {
             return NextResponse.json({ error: accessError }, { status: 403 });
         }
 
         return NextResponse.json({ data: patient }, { status: 200 });
 
-    } catch (err: any) {
-        return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: err.status || 500 });
+    } catch (err) {
+        const error = err as Error & { status?: number };
+        return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: error.status || 500 });
     }
 }
 
@@ -76,7 +87,7 @@ export async function PATCH(
         const requesterProfile = await userService.getMe(user.id);
         const patient = await patientService.getPatientById(id);
 
-        const accessError = await checkPatientAccess(user.id, requesterProfile, patient);
+        const accessError = await checkPatientAccess(user.id, requesterProfile as unknown as Profile, patient as unknown as Patient);
         if (accessError) {
             return NextResponse.json({ error: accessError }, { status: 403 });
         }
@@ -88,7 +99,8 @@ export async function PATCH(
             data
         }, { status: 200 });
 
-    } catch (err: any) {
-        return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: err.status || 500 });
+    } catch (err) {
+        const error = err as Error & { status?: number };
+        return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: error.status || 500 });
     }
 }
