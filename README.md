@@ -6,6 +6,62 @@ Tujuan utama Claimly adalah menggunakan teknologi kriptografi mutakhir untuk mem
 
 ---
 
+## 🏗️ Arsitektur Sistem & Alur Pengguna
+
+Sistem Claimly terdiri dari modul Next.js utama untuk manajemen dan verifikasi, serta modul Chatbot RAG terpisah untuk asisten medis pintar.
+
+```mermaid
+graph TD
+    subgraph "Client Layer"
+        User[User / Patient / Hospital Staff]
+        Browser[Next.js Web App]
+    end
+
+    subgraph "Application Layer (Main)"
+        NextJS[Next.js App Router]
+        ZKP[ZKP Circuit / snarkjs]
+        Identity[Identity & Key Service]
+    end
+
+    subgraph "Application Layer (Chatbot)"
+        FastAPI[FastAPI Chatbot Service]
+        Worker[ARQ Background Worker]
+        Gemini[Google Gemini Pro]
+    end
+
+    subgraph "Infrastructure & Data"
+        SupabaseAuth[Supabase Auth]
+        SupabasePostgres[Supabase PostgreSQL]
+        SupabaseVector[Supabase Vector Store]
+        Redis[Redis Queue & PubSub]
+    end
+
+    %% Flow: Auth
+    User -->|1. Login| Browser
+    Browser <-->|2. Auth & Session| SupabaseAuth
+
+    %% Flow: Management
+    Browser <-->|3. CRUD Claims/Records| NextJS
+    NextJS <-->|4. Persist Data| SupabasePostgres
+    NextJS -->|5. Generate Proof| ZKP
+
+    %% Flow: Chatbot (RAG)
+    Browser <-->|6. WebSocket Prompt| FastAPI
+    FastAPI -->|7. Enqueue RAG Job| Redis
+    Redis -->|8. Process Job| Worker
+    Worker -->|9. Fetch Identity/MK| Identity
+    Worker -->|10. Context Search| SupabaseVector
+    Worker <-->|11. Generate Answer| Gemini
+    Worker -->|12. Stream Response| Redis
+    Redis -->|13. Stream to WebSocket| FastAPI
+    FastAPI -->|14. UI Render| Browser
+
+    %% Styling (High Contrast)
+    classDef default fill:#fff,stroke:#333,stroke-width:2px;
+```
+
+---
+
 ## 1. Deskripsi Projek
 
 Claimly menggunakan **Zero-Knowledge Proof (ZKP)** (diimplementasikan dengan Circom dan snarkjs) secara off-chain untuk membuktikan bahwa sebuah proses medis yang dijalani pasien memenuhi syarat polis asuransinya. 
@@ -17,6 +73,28 @@ Alur utama dalam sistem ini adalah:
 4. Pihak Asuransi memverifikasi proof tersebut dan memutuskan untuk menyetujui (approve) atau menolak (reject) klaim.
 
 Proses ini memastikan bahwa asuransi tidak akan pernah melihat detail diagnosis pasien, tanggal diagnosis, maupun detail rahasia lainnya.
+
+---
+
+## 🤖 Claimly RAG Chatbot Service
+
+Untuk meningkatkan pengalaman pengguna, kami menyediakan layanan chatbot medis asinkron yang mampu memberikan wawasan dari rekam medis terenkripsi tanpa mengorbankan privasi.
+
+*   **Repository**: [claimly-rag-chatbot](https://github.com/leeCode83/claimly-rag-chatbot)
+*   **Keunggulan**: Memproses data rekam medis secara "Zero-Persistence" (hanya ada di memori saat diproses).
+*   **Keamanan**: Dekripsi on-the-fly di RAM menggunakan ECIES dan AES-GCM.
+
+### Cara Menjalankan Chatbot (Quick Start):
+1.  Buka terminal di folder `claimly-rag-chatbot`.
+2.  Jalankan 4 background workers:
+    ```powershell
+    .\run_workers.ps1
+    ```
+3.  Jalankan FastAPI API:
+    ```powershell
+    .\run_api.ps1
+    ```
+    *Layanan akan tersedia di port 8000 via WebSocket.*
 
 ---
 
@@ -39,17 +117,24 @@ Saat ini, proses klaim asuransi kesehatan di Indonesia mengharuskan pihak rumah 
 * **Dashboard Klaim untuk Asuransi:** Mengelola tumpukan klaim masuk dengan data publik (prosedur, nominal) dan memverifikasi kriptografi integritas klaim.
 * **Notifikasi Status Klaim (Pasien):** Portal sederhana bagi pasien untuk memantau status persetujuan klaim mereka.
 * **Audit Trail/Logs Log:** Semua aktivitas kritis (submit klaim, proof generation, approval) tercatat permanen dan tidak dapat dihapus.
+* **AI Medical Assistant (RAG Chatbot):** Tanya jawab seputar rekam medis dengan konteks medis akurat menggunakan Google Gemini Pro.
 
 ---
 
 ## 4. Tech Stack yang Digunakan
 
-* **Frontend:** Next.js 14 (App Router) difokuskan pada fungsionalitas dan pemisahan rendering (*Server Components* & *Client Components*).
-* **Backend:** Next.js API Routes / Route Handlers.
-* **Database & BaaS:** Supabase — PostgreSQL, Supabase Auth (Manajemen sesi), Supabase Storage, Row-Level Security (RLS) untuk perlindungan data, RPC, dan Triggers.
-* **Zero-Knowledge Proof (ZKP):** Circom untuk merancang sirkuit ZK, snarkjs untuk generation & verification secara *runtime*, serta circomlib (Poseidon hash & MerkleProof).
-* **State Management:** Zustand (untuk mengelola state UI dan *session* di frontend).
-* **Testing:** Vitest (untuk service layer API dan logic ZKP) & Supertest.
+### Core Web & Management
+* **Frontend/Backend:** Next.js 14 (App Router).
+* **Identity & Management:** Next.js Server Actions & Identity API.
+* **BaaS:** Supabase (Auth, PostgreSQL, Storage).
+* **Zero-Knowledge Proof (ZKP):** Circom & snarkjs (Poseidon Hash, Merkle Proof).
+
+### AI & Chatbot Service
+* **API Service:** FastAPI (Python) dengan Winloop (IOCP) untuk optimasi Windows.
+* **Background Worker:** ARQ (Redis based job queue).
+* **LLM Engine:** Google Gemini Pro API.
+* **Vector Store:** Supabase Vector (pgvector).
+* **Message Broker:** Redis (Queue & Pub/Sub for real-time streaming).
 
 ---
 
