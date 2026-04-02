@@ -11,53 +11,86 @@ Tujuan utama Claimly adalah menggunakan teknologi kriptografi mutakhir untuk mem
 Sistem Claimly terdiri dari modul Next.js utama untuk manajemen dan verifikasi, serta modul Chatbot RAG terpisah untuk asisten medis pintar.
 
 ```mermaid
-graph TD
-    subgraph "Client Layer"
-        User[User / Patient / Hospital Staff]
-        Browser[Next.js Web App]
-    end
+---
+config:
+  theme: base
+  themeVariables:
+    primaryColor: '#e3f2fd'
+    primaryTextColor: '#000'
+    primaryBorderColor: '#1976d2'
+    lineColor: '#424242'
+    secondaryColor: '#f3e5f5'
+    tertiaryColor: '#e8f5e9'
+    noteBkgColor: '#fff3e0'
+    noteTextColor: '#000'
+  layout: dagre
+---
+flowchart TB
+ subgraph Client["🖥️ Client Layer"]
+    direction LR
+        User["👤 User/Patient/<br>Hospital Staff"]
+        Browser["📱 Next.js<br>Web App"]
+        ZKPClient["🔐 ZKP Circuit/<br>snarkjs"]
+  end
+ subgraph Chatbot["🤖 Chatbot"]
+    direction TB
+        FastAPI["⚡ FastAPI<br>Service"]
+        Worker["🔄 ARQ<br>Worker"]
+        Gemini["✨ Gemini<br>Pro"]
+  end
+ subgraph MainApp["⚙️ Main"]
+    direction TB
+        NextJS["🔷 Next.js<br>Router"]
+        ZKPVerify["✅ ZKP<br>Verifier"]
+        Identity["🔑 Identity &amp;<br>Key Svc"]
+  end
+ subgraph Applications["Application Layers"]
+    direction LR
+        Chatbot
+        MainApp
+  end
+ subgraph Infra["💾 Infrastructure & Data"]
+    direction LR
+        SupabaseAuth["🔐 Supabase<br>Auth"]
+        Redis["⚡ Redis<br>Queue"]
+        SupabasePostgres["🗄️ PostgreSQL"]
+        SupabaseVector["📊 Vector<br>Store"]
+  end
+    User -- 1️⃣ Login --> Browser
+    Browser -- 8️⃣ WebSocket --> FastAPI
+    Browser <-- 3️⃣ CRUD --> NextJS
+    Browser -- 5️⃣ Generate --> ZKPClient
+    ZKPClient -- 6️⃣ Submit --> NextJS
+    Browser <-- 2️⃣ Auth --> SupabaseAuth
+    NextJS <-- 4️⃣ Data --> SupabasePostgres
+    NextJS -- 7️⃣ Verify --> ZKPVerify
+    ZKPVerify -. Key .-> Identity
+    FastAPI -- 9️⃣ Enqueue --> Redis
+    Redis -- 🔟 Job --> Worker
+    Worker -- 1️⃣1️⃣ Fetch --> Identity
+    Worker -- 1️⃣2️⃣ Search --> SupabaseVector
+    Worker <-- 1️⃣3️⃣ LLM --> Gemini
+    Worker -- 1️⃣4️⃣ Pub --> Redis
+    Redis -- 1️⃣5️⃣ Sub --> FastAPI
+    FastAPI -- 1️⃣6️⃣ Render --> Browser
 
-    subgraph "Application Layer (Main)"
-        NextJS[Next.js App Router]
-        ZKP[ZKP Circuit / snarkjs]
-        Identity[Identity & Key Service]
-    end
-
-    subgraph "Application Layer (Chatbot)"
-        FastAPI[FastAPI Chatbot Service]
-        Worker[ARQ Background Worker]
-        Gemini[Google Gemini Pro]
-    end
-
-    subgraph "Infrastructure & Data"
-        SupabaseAuth[Supabase Auth]
-        SupabasePostgres[Supabase PostgreSQL]
-        SupabaseVector[Supabase Vector Store]
-        Redis[Redis Queue & PubSub]
-    end
-
-    %% Flow: Auth
-    User -->|1. Login| Browser
-    Browser <-->|2. Auth & Session| SupabaseAuth
-
-    %% Flow: Management
-    Browser <-->|3. CRUD Claims/Records| NextJS
-    NextJS <-->|4. Persist Data| SupabasePostgres
-    NextJS -->|5. Generate Proof| ZKP
-
-    %% Flow: Chatbot (RAG)
-    Browser <-->|6. WebSocket Prompt| FastAPI
-    FastAPI -->|7. Enqueue RAG Job| Redis
-    Redis -->|8. Process Job| Worker
-    Worker -->|9. Fetch Identity/MK| Identity
-    Worker -->|10. Context Search| SupabaseVector
-    Worker <-->|11. Generate Answer| Gemini
-    Worker -->|12. Stream Response| Redis
-    Redis -->|13. Stream to WebSocket| FastAPI
-    FastAPI -->|14. UI Render| Browser
-
-    %% Styling (High Contrast)
-    classDef default fill:#fff,stroke:#333,stroke-width:2px;
+     User:::clientStyle
+     Browser:::clientStyle
+     ZKPClient:::clientStyle
+     FastAPI:::chatbotStyle
+     Worker:::chatbotStyle
+     Gemini:::chatbotStyle
+     NextJS:::mainAppStyle
+     ZKPVerify:::mainAppStyle
+     Identity:::mainAppStyle
+     SupabaseAuth:::infraStyle
+     Redis:::infraStyle
+     SupabasePostgres:::infraStyle
+     SupabaseVector:::infraStyle
+    classDef clientStyle fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef mainAppStyle fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef chatbotStyle fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef infraStyle fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#000
 ```
 
 ---
