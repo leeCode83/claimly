@@ -2,6 +2,9 @@
 
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
+import { generateProof } from "@/service/zkp";
+
+export type ZkpStatus = 'idle' | 'preparing' | 'generating' | 'submitting' | 'success' | 'error';
 
 /**
  * Hook to handle claims operations.
@@ -11,6 +14,8 @@ import { toast } from "sonner";
  */
 export const useClaims = (token?: string | null) => {
     const [isLoading, setIsLoading] = useState(false);
+    const [zkpStatus, setZkpStatus] = useState<ZkpStatus>('idle');
+    const [zkpError, setZkpError] = useState<string | null>(null);
 
     /**
      * Helper to create request headers including the bearer token if available.
@@ -161,6 +166,83 @@ export const useClaims = (token?: string | null) => {
     };
 
     /**
+     * Orchestrates the ZKP claim submission: Prepare -> Generate Proof -> Submit.
+     * @param payload Basic claim data
+     */
+    const submitClaimWithZkp = async (payload: {
+        patient_policy_id: string;
+        medical_record_id: string;
+        procedure_id: string;
+        procedure_date: string;
+        claim_amount: number;
+    }) => {
+        setIsLoading(true);
+        setZkpStatus('idle');
+        setZkpError(null);
+        
+        try {
+            // Phase 1: Prepare (Fetch Merkle paths & Signed URLs)
+            setZkpStatus('preparing');
+            const prepParams = new URLSearchParams({
+                patient_policy_id: payload.patient_policy_id,
+                medical_record_id: payload.medical_record_id,
+                procedure_id: payload.procedure_id,
+                procedure_date: payload.procedure_date,
+                claim_amount: payload.claim_amount.toString(),
+            });
+            
+            const prepResponse = await fetch(`/api/claims/prepare?${prepParams.toString()}`, {
+                headers: getHeaders(false),
+            });
+            const prepResult = await prepResponse.json();
+            
+            if (!prepResponse.ok) {
+                throw new Error(prepResult.error || "Gagal menyiapkan data ZKP");
+            }
+            
+            const prepData = prepResult.data;
+            
+            // Phase 2: Generate Proof (Client-side heavy computation)
+            setZkpStatus('generating');
+            const { proof, publicSignals } = await generateProof(prepData);
+            
+            // Phase 3: Submit (Post claim + proof to server)
+            setZkpStatus('submitting');
+            const submitResponse = await fetch("/api/claims", {
+                method: "POST",
+                headers: getHeaders(true),
+                body: JSON.stringify({
+                    ...payload,
+                    proof,
+                    public_signals: publicSignals
+                }),
+            });
+            
+            const submitResult = await submitResponse.json();
+            
+            if (!submitResponse.ok) {
+                throw new Error(submitResult.error || "Gagal mengirimkan klaim");
+            }
+            
+            setZkpStatus('success');
+            toast.success("Klaim Berhasil", {
+                description: "ZKP proof berhasil digenerate di browser dan klaim telah diajukan."
+            });
+            
+            return submitResult;
+            
+        } catch (error: any) {
+            console.error("[useClaims.submitClaimWithZkp] Error:", error.message);
+            setZkpStatus('error');
+            setZkpError(error.message);
+            toast.error("Gagal Memproses Klaim", { description: error.message });
+            throw error;
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    /**
      * Reject a pending claim (for insurance_reviewer).
      * @param id Claim UUID
      * @param reviewNotes Review notes (required for rejection)
@@ -196,9 +278,12 @@ export const useClaims = (token?: string | null) => {
 
     return {
         isLoading,
+        zkpStatus,
+        zkpError,
         getClaims,
         getClaimById,
         submitClaim,
+        submitClaimWithZkp,
         approveClaim,
         rejectClaim,
     };

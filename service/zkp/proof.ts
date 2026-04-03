@@ -89,8 +89,8 @@ export async function generateProof(
   };
 
   try {
-    const wasmPath = await ensureArtifact('insurance_claim.wasm');
-    const zkeyPath = await ensureArtifact('insurance_claim.zkey');
+    const wasmPath = input.artifacts?.wasm_url || await ensureArtifact('insurance_claim.wasm');
+    const zkeyPath = input.artifacts?.zkey_url || await ensureArtifact('insurance_claim.zkey');
 
     const { proof, publicSignals } = await snarkjs.groth16.fullProve(
       snarkjsInput,

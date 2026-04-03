@@ -228,6 +228,12 @@ export class ClaimService {
             allLeafData: procLeafData
         });
 
+        // Generate Signed URLs for ZKP artifacts (wasm & zkey)
+        const [wasmUrlRes, zkeyUrlRes] = await Promise.all([
+            this.supabase.storage.from('zkp-artifacts').createSignedUrl('insurance_claim.wasm', 3600),
+            this.supabase.storage.from('zkp-artifacts').createSignedUrl('insurance_claim.zkey', 3600)
+        ]);
+
         return {
             diagnosisCode: medDiagnosis.icd10_integer_encoding,
             diagnosisDate: medRecord.diagnosis_date_encoded,
@@ -242,7 +248,11 @@ export class ClaimService {
             claimAmount: payload.claim_amount,
             approvedDiagnosisRoot: policy.approved_diagnosis_root,
             approvedProcedureRoot: policy.approved_procedure_root,
-            maxCoverageAmount: procedure.default_max_coverage
+            maxCoverageAmount: procedure.default_max_coverage,
+            artifacts: {
+                wasm_url: wasmUrlRes.data?.signedUrl || null,
+                zkey_url: zkeyUrlRes.data?.signedUrl || null
+            }
         };
     }
 
