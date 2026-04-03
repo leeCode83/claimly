@@ -1,62 +1,14 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { verifyProof, validatePublicSignals, getMerklePath } from "@/service/zkp";
-
-function encodeDate(dateStr: string): number {
-    return parseInt(dateStr.replace(/-/g, ''), 10);
-}
-
-interface AppError extends Error {
-    status?: number;
-}
-
-interface Claim {
-    id: string;
-    patient_policy_id: string;
-    medical_record_id: string;
-    procedure_id: string;
-    procedure_date: string;
-    procedure_date_encoded: number;
-    claim_amount: number;
-    status: string;
-    submitted_by: string;
-    submitted_at: string;
-    zkp_proofs?: ZkpProof | ZkpProof[];
-    patient_policies?: PatientPolicy;
-    procedures?: Procedure;
-}
-
-interface ZkpProof {
-    id: string;
-    claim_id: string;
-    proof_json: unknown;
-    public_signals: string[];
-    verification_result: boolean | null;
-    verified_at?: string;
-}
-
-interface Procedure {
-    id: string;
-    icd9_integer_encoding: number;
-    default_max_coverage: number;
-}
-
-interface PatientPolicy {
-    id: string;
-    start_date: string;
-    end_date: string;
-    insurance_policies: InsurancePolicy | InsurancePolicy[];
-}
-
-interface InsurancePolicy {
-    id: string;
-    approved_diagnosis_root: string;
-    approved_procedure_root: string;
-}
-
-interface MedicalRecord {
-    diagnosis_date_encoded: number;
-    diagnosis: { icd10_integer_encoding: number } | { icd10_integer_encoding: number }[];
-}
+import { AppError } from "@/types/common.types";
+import { 
+    Claim, 
+    ZkpProof, 
+    Procedure, 
+    InsurancePolicy, 
+    MedicalRecord 
+} from "@/types/claim.types";
+import { encodeDate } from "@/lib/utils";
 
 export class ClaimService {
     constructor(private supabase: SupabaseClient) {}
@@ -190,54 +142,18 @@ export class ClaimService {
 
         // 4. Verifikasi dan Simpan ZKP Proof jika disediakan oleh client
         if (payload.proof && payload.public_signals) {
-            try {
-                // 4.1 Validasi Konsistensi Data dengan Public Signals ZKP
-                const validation = validatePublicSignals(payload.public_signals, {
-                    claimAmount: payload.claim_amount,
-                    procedureDate: procedure_date_encoded,
-                    approvedDiagnosisRoot: policy.approved_diagnosis_root,
-                    approvedProcedureRoot: policy.approved_procedure_root,
-                    maxCoverageAmount: procedure.default_max_coverage
-                });
-
-                if (!validation.isValid) {
-                    const err = new Error(`Integritas data ZKP gagal: ${validation.reason}`) as AppError;
-                    err.status = 400;
-                    throw err;
-                }
-
-                // 4.2 Verifikasi proof secara kriptografis di sisi server
-                const { isValid } = await verifyProof({
-                    publicSignals: payload.public_signals,
-                    proof: payload.proof
-                });
-
-                if (!isValid) {
-                    const err = new Error("Verifikasi ZKP Proof gagal: Bukti tidak valid atau tidak sesuai dengan data klaim.") as AppError;
-                    err.status = 400;
-                    throw err;
-                }
-
-                const { error: proofError } = await this.supabase
-                    .from('zkp_proofs')
-                    .insert({
-                        claim_id: claim.id,
-                        proof_json: payload.proof,
-                        public_signals: payload.public_signals
-                    });
-
-                if (proofError) {
-                    throw new Error(`Gagal menyimpan proof: ${proofError.message}`);
-                }
-
-                // 5. Update status claim jadi submitted
-                await this.supabase.from('claims').update({ status: 'submitted' }).eq('id', (claim as Claim).id);
-                (claim as Claim).status = 'submitted';
-            } catch (err) {
-                await this.supabase.from('claims').update({ status: 'Fail generate proof' }).eq('id', (claim as Claim).id);
-                (claim as Claim).status = 'Fail generate proof';
-                throw err;
-            }
+            await this.saveProof(
+                claim.id,
+                {
+                    proof: payload.proof,
+                    public_signals: payload.public_signals,
+                    claim_amount: payload.claim_amount
+                },
+                procedure_date_encoded,
+                policy,
+                procedure
+            );
+            (claim as Claim).status = 'submitted';
         }
 
         return claim;
@@ -343,49 +259,83 @@ export class ClaimService {
             throw err;
         }
 
-        // Auto-verify jika proof ada tapi belum diverifikasi
-        const zkpProof = (claim as unknown as Claim).zkp_proofs as ZkpProof | undefined;
-        if (zkpProof && zkpProof.verification_result === null) {
-            try {
-                // Re-validate consistency before auto-verify
-                const patientPolicies = (claim as unknown as Claim).patient_policies;
-                const policyData = patientPolicies?.insurance_policies;
-                const policy = Array.isArray(policyData) ? policyData[0] : policyData;
-                const procedure = (claim as unknown as Claim).procedures;
+        return claim;
+    }
 
-                const validation = validatePublicSignals(zkpProof.public_signals, {
-                    claimAmount: claim.claim_amount,
-                    procedureDate: claim.procedure_date_encoded,
-                    approvedDiagnosisRoot: policy?.approved_diagnosis_root || "",
-                    approvedProcedureRoot: policy?.approved_procedure_root || "",
-                    maxCoverageAmount: procedure?.default_max_coverage || 0
-                });
+    async verifyClaim(claimId: string) {
+        // 1. Fetch claim beserta proof dan data pendukung untuk validasi
+        const fullClaim = await this.getClaimById(claimId) as unknown as Claim;
 
-                if (!validation.isValid) {
-                    throw new Error(validation.reason);
-                }
-
-                const { isValid } = await verifyProof({
-                    proof: zkpProof.proof_json,
-                    publicSignals: zkpProof.public_signals
-                });
-
-                await this.supabase
-                    .from('zkp_proofs')
-                    .update({
-                        verification_result: isValid,
-                        verified_at: new Date().toISOString()
-                    })
-                    .eq('id', zkpProof.id);
-
-                zkpProof.verification_result = isValid;
-                zkpProof.verified_at = new Date().toISOString();
-            } catch {
-                // Jika verifikasi gagal, biarkan verification_result tetap null
-            }
+        const zkpProof = fullClaim.zkp_proofs as ZkpProof | undefined;
+        if (!zkpProof) {
+            const err = new Error("Klaim tidak memiliki ZKP proof untuk diverifikasi") as AppError;
+            err.status = 400;
+            throw err;
         }
 
-        return claim;
+        // 2. Jika sudah pernah diverifikasi, kembalikan hasil cached
+        if (zkpProof.verification_result !== null) {
+            return {
+                claim_id: claimId,
+                verification_result: zkpProof.verification_result,
+                verified_at: zkpProof.verified_at,
+                cached: true
+            };
+        }
+
+        // 3. Validasi konsistensi public signals dengan data klaim
+        const policyData = fullClaim.patient_policies?.insurance_policies;
+        const policy = Array.isArray(policyData) ? policyData[0] : policyData;
+        const procedure = fullClaim.procedures;
+
+        const validation = validatePublicSignals(zkpProof.public_signals, {
+            claimAmount: fullClaim.claim_amount,
+            procedureDate: fullClaim.procedure_date_encoded,
+            approvedDiagnosisRoot: policy?.approved_diagnosis_root || "",
+            approvedProcedureRoot: policy?.approved_procedure_root || "",
+            maxCoverageAmount: procedure?.default_max_coverage || 0
+        });
+
+        if (!validation.isValid) {
+            const err = new Error(`Integritas proof gagal: ${validation.reason}`) as AppError;
+            err.status = 400;
+            throw err;
+        }
+
+        // 4. Verifikasi kriptografis
+        const { isValid } = await verifyProof({
+            proof: zkpProof.proof_json,
+            publicSignals: zkpProof.public_signals
+        });
+
+        if (!isValid) {
+            const err = new Error("Verifikasi ZKP proof gagal: bukti tidak valid atau tidak sesuai dengan data klaim") as AppError;
+            err.status = 400;
+            throw err;
+        }
+
+        // 5. Simpan hasil verifikasi ke tabel zkp_proofs (satu-satunya perubahan DB)
+        const verifiedAt = new Date().toISOString();
+        const { error: updateError } = await this.supabase
+            .from('zkp_proofs')
+            .update({
+                verification_result: true,
+                verified_at: verifiedAt
+            })
+            .eq('id', zkpProof.id);
+
+        if (updateError) {
+            const err = new Error(`Gagal menyimpan hasil verifikasi: ${updateError.message}`) as AppError;
+            err.status = 500;
+            throw err;
+        }
+
+        return {
+            claim_id: claimId,
+            verification_result: true,
+            verified_at: verifiedAt,
+            cached: false
+        };
     }
 
     async approveClaim(claimId: string, reviewerId: string, reviewNotes?: string) {
@@ -474,6 +424,49 @@ export class ClaimService {
         return { claim_id: claimId, status: 'approved' };
     }
 
+    private async saveProof(
+        claimId: string,
+        payload: { proof: unknown; public_signals: string[]; claim_amount: number },
+        procedureDateEncoded: number,
+        policy: InsurancePolicy,
+        procedure: Procedure
+    ) {
+        try {
+            // 4.1 Validasi Konsistensi Data dengan Public Signals ZKP
+            const validation = validatePublicSignals(payload.public_signals, {
+                claimAmount: payload.claim_amount,
+                procedureDate: procedureDateEncoded,
+                approvedDiagnosisRoot: policy.approved_diagnosis_root,
+                approvedProcedureRoot: policy.approved_procedure_root,
+                maxCoverageAmount: procedure.default_max_coverage
+            });
+
+            if (!validation.isValid) {
+                const err = new Error(`Integritas data ZKP gagal: ${validation.reason}`) as AppError;
+                err.status = 400;
+                throw err;
+            }
+
+            const { error: proofError } = await this.supabase
+                .from('zkp_proofs')
+                .insert({
+                    claim_id: claimId,
+                    proof_json: payload.proof,
+                    public_signals: payload.public_signals
+                });
+
+            if (proofError) {
+                throw new Error(`Gagal menyimpan proof: ${proofError.message}`);
+            }
+
+            // 5. Update status claim jadi submitted
+            await this.supabase.from('claims').update({ status: 'submitted' }).eq('id', claimId);
+        } catch (err) {
+            await this.supabase.from('claims').update({ status: 'Fail generate proof' }).eq('id', claimId);
+            throw err;
+        }
+    }
+
     async rejectClaim(claimId: string, reviewerId: string, reviewNotes: string) {
         if (!reviewNotes || reviewNotes.trim() === '') {
             const err = new Error("review_notes wajib diisi saat menolak klaim") as AppError;
@@ -501,10 +494,10 @@ export class ClaimService {
                 .select('diagnosis_date_encoded, diagnosis:diagnoses(icd10_integer_encoding)')
                 .eq('id', medical_record_id).single(),
             this.supabase.from('patient_policies')
-                .select('start_date, end_date, insurance_policies(id, approved_diagnosis_root, approved_procedure_root)')
+                .select('id, start_date, end_date, insurance_policies(id, approved_diagnosis_root, approved_procedure_root)')
                 .eq('id', patient_policy_id).single(),
             this.supabase.from('procedures')
-                .select('icd9_integer_encoding, default_max_coverage')
+                .select('id, icd9_integer_encoding, default_max_coverage')
                 .eq('id', procedure_id).single()
         ]);
 
