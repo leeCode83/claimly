@@ -97,4 +97,14 @@ export class AuthService {
 
         return data;
     }
+
+    async signOut() {
+        const { error } = await this.supabase.auth.signOut();
+        if (error) {
+            const err: any = new Error(error.message);
+            err.status = 400;
+            throw err;
+        }
+        return { message: "Signed out successfully" };
+    }
 }

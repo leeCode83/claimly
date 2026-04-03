@@ -10,21 +10,19 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        const userService = new UserService(supabase);
-        
-        // Cek admin role
-        const currentUserProfile = await userService.getMe(user.id);
-        if (currentUserProfile.role !== 'admin') {
-            return NextResponse.json({ error: 'Forbidden: Admin access only' }, { status: 403 });
-        }
-
         const searchParams = request.nextUrl.searchParams;
         const page = parseInt(searchParams.get('page') || '1');
         const limit = parseInt(searchParams.get('limit') || '10');
-        const search = searchParams.get('search') || '';
-        const role = searchParams.get('role') || '';
 
-        const result = await userService.getUsers({ page, limit, search, role });
+        const userService = new UserService(supabase);
+        const role = user.user_metadata?.role;
+        
+        // Authorization: hanya admin
+        if (role !== 'admin') {
+             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+
+        const result = await userService.getUsers({ page, limit });
 
         return NextResponse.json({
             message: "Berhasil mengambil daftar user",

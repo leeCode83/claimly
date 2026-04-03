@@ -16,14 +16,14 @@ export async function GET(
         const params = await props.params;
         const id = params.id;
 
-        const userService = new UserService(supabase);
-        const currentUserProfile = await userService.getMe(user.id);
+        const role = user.user_metadata?.role;
         
         // Authorization: hanya admin atau user yang bersangkutan
-        if (currentUserProfile.role !== 'admin' && user.id !== id) {
+        if (role !== 'admin' && user.id !== id) {
              return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 
+        const userService = new UserService(supabase);
         const data = await userService.getUserById(id);
 
         return NextResponse.json({ data }, { status: 200 });
@@ -52,14 +52,14 @@ export async function PATCH(
         
         const body = await request.json();
 
-        const userService = new UserService(supabase);
-        const currentUserProfile = await userService.getMe(user.id);
+        const role = user.user_metadata?.role;
         
         // Authorization: update role atau institution_id hanya Admin
-        if (currentUserProfile.role !== 'admin') {
+        if (role !== 'admin') {
              return NextResponse.json({ error: 'Forbidden: Admin access only for updating users' }, { status: 403 });
         }
 
+        const userService = new UserService(supabase);
         const data = await userService.updateUser(id, body);
 
         return NextResponse.json({ 
@@ -90,14 +90,14 @@ export async function DELETE(
         const params = await props.params;
         const id = params.id;
 
-        const userService = new UserService(supabase);
-        const currentUserProfile = await userService.getMe(user.id);
+        const role = user.user_metadata?.role;
         
         // Authorization: hanya admin atau user yang bersangkutan
-        if (currentUserProfile.role !== 'admin' && user.id !== id) {
+        if (role !== 'admin' && user.id !== id) {
              return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 
+        const userService = new UserService(supabase);
         const data = await userService.deleteUser(id);
 
         return NextResponse.json({ 
