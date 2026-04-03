@@ -212,3 +212,44 @@ Penerapan ZKP dalam Claimly memberikan keuntungan bagi seluruh pihak yang terlib
 | **Penyakit Penyerta** | Terbuka di rekam medis | Terproteksi (Hanya data klaim yang di-proof) |
 | **Status Verifikasi** | Manual (Human Reviewer) | Otomatis (Matematis/Kriptografis) |
 | **Keamanan Data** | Berisiko tinggi bocor/disalahgunakan | Privasi terjamin secara infrastruktur |
+
+---
+
+## 9. Detail Database & Keamanan (Supabase)
+
+Bagian ini merinci struktur database yang digunakan untuk mendukung sistem klaim berbasis privasi.
+
+### 📂 Daftar Tabel
+Terdapat total **13 tabel** utama di dalam schema `public`:
+`audit_logs`, `claims`, `diagnoses`, `institutions`, `insurance_policies`, `medical_records`, `patient_policies`, `patients`, `policy_covered_diagnoses`, `policy_covered_procedures`, `procedures`, `users`, `zkp_proofs`.
+
+### ⚡ Remote Procedure Calls (RPC) / PostgreSQL Functions
+Berikut adalah fungsi-fungsi khusus yang dapat dipanggil dari client untuk menjalankan logika database yang kompleks:
+
+| Nama Fungsi | Argumen | Deskripsi / Fungsi |
+| :--- | :--- | :--- |
+| `approve_claim` | `p_claim_id`, `p_reviewer_id`, `p_review_notes` | Menyetujui klaim yang masuk dan mencatat reviewer serta catatannya. |
+| `reject_claim` | `p_claim_id`, `p_reviewer_id`, `p_review_notes` | Menolak klaim yang masuk dengan alasan tertentu. |
+| `get_claims_paginated` | `p_page`, `p_limit`, `p_sort_by`, `p_sort_dir`, `p_status`, `p_search` | Mengambil data klaim dengan filter, sorting, dan pagination yang efisien. |
+| `get_my_crypto_data` | - | Mengambil data keypair terenkripsi milik user yang sedang login (untuk proses dekripsi di browser). |
+| `get_patient_public_key` | `p_patient_id` | Mengambil public key pasien (hanya bisa diakses oleh RS yang menangani pasien tersebut). |
+| `save_user_keypair` | `p_public_key`, `p_encrypted_priv_key`, `p_salt`, `p_iv` | Menyimpan pasangan kunci kriptografi baru saat user pertama kali aktivasi. |
+| `update_user_keypair` | `p_encrypted_priv_key`, `p_salt`, `p_iv` | Memperbarui kunci privat terenkripsi saat user mengganti password. |
+| `create_policy_with_relations`| `ins_id`, `name`, `amount`, `valid_from`, `valid_until`, `diag_root`, `proc_root`, `active`, `diagnoses`, `procedures` | Fungsi transaksional untuk membuat polis asuransi beserta daftar panjang diagnosa/prosedur sekaligus. |
+| `get_user_role` | - | Mengambil string role user (`patient`, `hospital_staff`, dll) dari session aktif. |
+| `get_user_institution_id` | - | Mengambil UUID institusi tempat user bekerja/terdaftar. |
+
+### 🔒 Kebijakan Row Level Security (RLS)
+RLS memastikan bahwa data hanya dapat diakses oleh pihak yang berwenang berdasarkan role dan hubungan institusional.
+
+| Tabel | Kebijakan (Policies) | Penjelasan Detail |
+| :--- | :--- | :--- |
+| **`claims`** | `claims_read`, `claims_insert`, `claims_update` | Staf RS hanya bisa akses klaim institusinya; Reviewer asuransi hanya melihat klaim `submitted/approved/rejected`; Pasien hanya melihat klaim miliknya. |
+| **`medical_records`** | `medical_records_read`, `medical_records_insert`, `medical_records_update` | Akses terbatas hanya untuk Staf RS asal rekam medis, Pasien pemilik data, dan Admin. Reviewer asuransi **TIDAK** punya akses baca ke tabel ini. |
+| **`patients`** | `patients_read`, `patients_insert`, `patients_update` | Data pasien hanya bisa dilihat oleh RS yang mendaftarkan atau menangani pasien tersebut, serta pasien itu sendiri. |
+| **`users`** | `users_read_all`, `users_update_own` | Semua user bisa melihat data publik user lain (seperti `public_key`), tapi hanya bisa mengubah data profil miliknya sendiri. |
+| **`insurance_policies`**| `read`, `insert`, `update`, `delete` | Bisa dibaca oleh siapa saja (publik katalog), namun hanya Reviewer Asuransi & Admin yang bisa menambah/mengubah data. |
+| **`patient_policies`** | `read`, `write` | Pasien bisa melihat polisnya; RS bisa mendaftarkan polis pasien; Admin & Reviewer bisa melihat semua distribusi polis. |
+| **`zkp_proofs`** | `read`, `insert`, `update` | Hanya pihak teknis RS dan Reviewer yang bisa berinteraksi dengan bukti kriptografi klaim. |
+| **`audit_logs`** | `audit_logs_read` | Log hanya bisa dilihat oleh Admin, pemilik log, atau staff dari institusi yang sama dengan pelaku aksi. |
+| **`diagnoses`/`procedures`**| `read`, `write` | Terbuka untuk dibaca oleh semua (referensi standar), namun hanya Admin yang bisa mengubah data masternya. |
