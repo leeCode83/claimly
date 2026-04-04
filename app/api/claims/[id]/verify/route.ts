@@ -20,12 +20,15 @@ export async function POST(
         const claimId = params.id;
 
         const claimService = new ClaimService(supabase);
-        const result = await claimService.verifyClaim(claimId);
+        const result = await claimService.requestVerification(claimId);
 
+        const isAlreadyVerified = result.status === "already_verified";
         return NextResponse.json({
-            message: "Verifikasi proof berhasil",
-            ...result
-        }, { status: 200 });
+            message: isAlreadyVerified 
+                ? "Proof sudah diverifikasi sebelumnya"
+                : "Permintaan verifikasi diterima. Hasil akan tersedia via Supabase Realtime.",
+            data: result
+        }, { status: isAlreadyVerified ? 200 : 202 });
 
     } catch (err) {
         const error = err as Error & { status?: number };

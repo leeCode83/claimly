@@ -3,8 +3,9 @@
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
 import { generateProof } from "@/service/zkp";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 
-export type ZkpStatus = 'idle' | 'preparing' | 'generating' | 'submitting' | 'success' | 'error';
+export type ZkpStatus = 'idle' | 'preparing' | 'generating' | 'submitting' | 'verifying' | 'success' | 'error';
 
 /**
  * Hook to handle claims operations.
@@ -224,12 +225,98 @@ export const useClaims = (token?: string | null) => {
                 throw new Error(submitResult.error || "Gagal mengirimkan klaim");
             }
             
-            setZkpStatus('success');
-            toast.success("Klaim Berhasil", {
-                description: "ZKP proof berhasil digenerate di browser dan klaim telah diajukan."
-            });
+            const claimId = submitResult.data.id;
+
+            // Phase 4: Wait for Asynchronous Verification (Realtime)
+            setZkpStatus('verifying');
             
-            return submitResult;
+            return new Promise((resolve, reject) => {
+                // 1. "Check then Subscribe" - Cek apakah sudah selesai (race condition prevention)
+                const checkStatus = async () => {
+                    try {
+                        const { data: claim, error } = await supabaseBrowser
+                            .from('claims')
+                            .select('status, review_notes')
+                            .eq('id', claimId)
+                            .single();
+                        
+                        if (error) throw error;
+
+                        if (claim.status === 'approved' || claim.status === 'rejected') {
+                            setFinalStatus(claim.status, claim.review_notes);
+                            resolve(submitResult);
+                            return true;
+                        }
+                        return false;
+                    } catch (err) {
+                        console.error("Error initial status check:", err);
+                        return false;
+                    }
+                };
+
+                const setFinalStatus = (status: string, notes?: string) => {
+                    if (status === 'approved') {
+                        setZkpStatus('success');
+                        toast.success("Verifikasi Berhasil", { 
+                            description: "Klaim Anda telah diverifikasi secara otomatis oleh sistem dan disetujui." 
+                        });
+                    } else {
+                        setZkpStatus('error');
+                        setZkpError(notes || "Verifikasi gagal.");
+                        toast.error("Verifikasi Gagal", { 
+                            description: notes || "Bukti ZKP tidak valid atau tidak sesuai dengan kebijakan." 
+                        });
+                    }
+                };
+
+                // Jalankan pengecekan pertama
+                checkStatus().then(isDone => {
+                    if (isDone) return;
+
+                    // 2. Jika belum selesai, baru subscribe ke Realtime
+                    const channel = supabaseBrowser
+                        .channel(`claim-status-${claimId}`)
+                        .on(
+                            'postgres_changes',
+                            {
+                                event: 'UPDATE',
+                                schema: 'public',
+                                table: 'claims',
+                                filter: `id=eq.${claimId}`,
+                            },
+                            (payload) => {
+                                const newStatus = payload.new.status;
+                                const notes = payload.new.review_notes;
+
+                                if (newStatus === 'approved' || newStatus === 'rejected') {
+                                    setFinalStatus(newStatus, notes);
+                                    supabaseBrowser.removeChannel(channel);
+                                    resolve(submitResult);
+                                }
+                            }
+                        )
+                        .subscribe((status: string) => {
+                            if (status !== 'SUBSCRIBED') {
+                                // Fallback: Smart Polling jika Realtime gagal atau tidak bisa subscribe
+                                console.warn("Realtime subscription failed, falling back to polling...");
+                                const interval = setInterval(async () => {
+                                    const done = await checkStatus();
+                                    if (done) clearInterval(interval);
+                                }, 3000);
+                            }
+                        });
+
+                    // Timeout safety: Jika verifikasi > 60 detik
+                    setTimeout(() => {
+                        supabaseBrowser.removeChannel(channel);
+                        if (zkpStatus === 'verifying') {
+                            setZkpStatus('error');
+                            setZkpError("Timeout: Verifikasi memakan waktu terlalu lama. Silakan cek daftar klaim nanti.");
+                            reject(new Error("Verification timeout"));
+                        }
+                    }, 60000);
+                });
+            });
             
         } catch (error: any) {
             console.error("[useClaims.submitClaimWithZkp] Error:", error.message);

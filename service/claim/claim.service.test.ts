@@ -8,6 +8,10 @@ jest.mock('@/service/zkp', () => ({
     getMerklePath: jest.fn(),
 }));
 
+jest.mock('@/lib/queue-helpers', () => ({
+    enqueueVerification: jest.fn().mockResolvedValue(undefined),
+}));
+
 describe('ClaimService', () => {
     let supabaseMock: any;
     let claimService: ClaimService;
@@ -28,6 +32,11 @@ describe('ClaimService', () => {
         supabaseMock = {
             from: jest.fn(() => mockBuilder),
             rpc: jest.fn(),
+            storage: {
+                from: jest.fn().mockReturnValue({
+                    createSignedUrl: jest.fn().mockResolvedValue({ data: { signedUrl: 'http://signed-url' }, error: null })
+                })
+            }
         };
 
         // Default mock for validatePublicSignals
@@ -128,7 +137,7 @@ describe('ClaimService', () => {
         it('harus melempar error temporal jika procedure_date < diagnosis_date', async () => {
             const { medRecord } = setupHappyMocks();
             medRecord.diagnosis_date_encoded = 20260325; // diagnosis setelah prosedur
-
+            
             await expect(claimService.submitClaim(mockPayload, submitterId)).rejects.toThrow('Validasi Gagal: Tanggal prosedur tidak boleh lebih awal dari tanggal diagnosa.');
         });
 
@@ -148,6 +157,10 @@ describe('ClaimService', () => {
             expect(result.id).toBe('claim-123');
             expect(supabaseMock.from).toHaveBeenCalledWith('claims');
             expect(supabaseMock.from).toHaveBeenCalledWith('zkp_proofs');
+            
+            // Verifikasi Helper called
+            const { enqueueVerification } = require('@/lib/queue-helpers');
+            expect(enqueueVerification).toHaveBeenCalledWith('claim-123', 'submit');
         });
     });
 
@@ -435,46 +448,89 @@ describe('ClaimService', () => {
     });
 
     // ─────────────────────────────────────────────
+    // requestVerification
+    // ─────────────────────────────────────────────
+    describe('requestVerification', () => {
+        it('harus enqueue job dan return status "verifying" jika belum diverifikasi', async () => {
+            const mockClaim = {
+                id: 'claim-123',
+                zkp_proofs: { verification_result: null }
+            };
+            claimService.getClaimById = jest.fn().mockResolvedValue(mockClaim);
+
+            const result = await claimService.requestVerification('claim-123');
+            
+            expect(result.status).toBe('verifying');
+            const { enqueueVerification } = require('@/lib/queue-helpers');
+            expect(enqueueVerification).toHaveBeenCalledWith('claim-123', 'manual_review');
+        });
+
+        it('harus kembalikan hasil cached jika sudah diverifikasi', async () => {
+            const mockClaim = {
+                id: 'claim-123',
+                zkp_proofs: { verification_result: true, verified_at: '2026-04-01' }
+            };
+            claimService.getClaimById = jest.fn().mockResolvedValue(mockClaim);
+
+            const result = await claimService.requestVerification('claim-123');
+            
+            expect(result.status).toBe('already_verified');
+            expect(result.verification_result).toBe(true);
+            const { enqueueVerification } = require('@/lib/queue-helpers');
+            expect(enqueueVerification).not.toHaveBeenCalledWith('claim-123', 'manual_review');
+        });
+
+        it('harus error jika klaim tidak memiliki proof', async () => {
+            claimService.getClaimById = jest.fn().mockResolvedValue({ id: '123', zkp_proofs: null });
+            await expect(claimService.requestVerification('123')).rejects.toThrow('Klaim tidak memiliki ZKP proof untuk diverifikasi');
+        });
+    });
+
+    // ─────────────────────────────────────────────
     // approveClaim
     // ─────────────────────────────────────────────
     describe('approveClaim', () => {
         const reviewerId = 'rev-1';
 
-        it('berhasil menyetujui klaim setelah verifikasi ZKP', async () => {
+        it('berhasil menyetujui klaim jika sudah diverifikasi', async () => {
             const mockClaim = {
                 id: 'claim-123',
-                claim_amount: 500000,
-                procedure_date_encoded: 20260320,
-                zkp_proofs: {
-                    id: 'proof-456',
-                    proof_json: {},
-                    public_signals: ['1', '20260320', '500000', 'rootA', 'rootB', '1000000'],
-                    verification_result: null
-                },
-                procedures: { icd9_integer_encoding: 456, default_max_coverage: 1000000 },
-                patient_policies: {
-                    insurance_policies: { 
-                        approved_diagnosis_root: 'rootA', 
-                        approved_procedure_root: 'rootB' 
-                    }
-                }
+                zkp_proofs: { verification_result: true }
             };
-
             supabaseMock.from.mockImplementation(() => ({
                 select: jest.fn().mockReturnThis(),
                 eq: jest.fn().mockReturnThis(),
-                single: jest.fn().mockResolvedValue({ data: mockClaim, error: null }),
-                update: jest.fn().mockReturnThis()
+                single: jest.fn().mockResolvedValue({ data: mockClaim, error: null })
             }));
 
-            claimService.getClaimById = jest.fn().mockResolvedValue(mockClaim);
             supabaseMock.rpc.mockResolvedValue({ error: null });
-            (verifyProof as jest.Mock).mockResolvedValue({ isValid: true });
 
             const result = await claimService.approveClaim('claim-123', reviewerId);
 
             expect(result.status).toBe('approved');
             expect(supabaseMock.rpc).toHaveBeenCalledWith('approve_claim', expect.any(Object));
+        });
+
+        it('harus throw 409 jika proof belum diverifikasi (verification_result: null)', async () => {
+            const mockClaim = {
+                id: 'claim-123',
+                zkp_proofs: { verification_result: null }
+            };
+            supabaseMock.from.mockImplementation(() => ({
+                select: jest.fn().mockReturnThis(),
+                eq: jest.fn().mockReturnThis(),
+                single: jest.fn().mockResolvedValue({ data: mockClaim, error: null })
+            }));
+            
+            const { enqueueVerification } = require('@/lib/queue-helpers');
+
+            await expect(claimService.approveClaim('claim-123', reviewerId))
+                .rejects.toMatchObject({ 
+                    message: expect.stringContaining('sedang diproses'),
+                    status: 409 
+                });
+            
+            expect(enqueueVerification).toHaveBeenCalledWith('claim-123', 'manual_review');
         });
 
         it('harus melempar error jika klaim tidak ditemukan', async () => {
@@ -487,39 +543,18 @@ describe('ClaimService', () => {
             await expect(claimService.approveClaim('invalid-id', reviewerId)).rejects.toThrow('Klaim tidak ditemukan');
         });
 
-        it('harus melempar error jika ZKP proof tidak valid', async () => {
+        it('harus melempar error jika ZKP proof tidak valid (false)', async () => {
             const mockClaim = {
                 id: 'claim-123',
-                claim_amount: 500000,
-                procedure_date_encoded: 20260320,
-                zkp_proofs: {
-                    id: 'proof-456',
-                    proof_json: {},
-                    public_signals: ['1', '20260320', '500000', 'rootA', 'rootB', '1000000'],
-                    verification_result: null
-                },
-                procedures: { icd9_integer_encoding: 456, default_max_coverage: 1000000 },
-                patient_policies: {
-                    insurance_policies: { 
-                        approved_diagnosis_root: 'rootA', 
-                        approved_procedure_root: 'rootB' 
-                    }
-                }
+                zkp_proofs: { verification_result: false }
             };
-
             supabaseMock.from.mockImplementation(() => ({
                 select: jest.fn().mockReturnThis(),
                 eq: jest.fn().mockReturnThis(),
-                single: jest.fn().mockResolvedValue({ data: mockClaim, error: null }),
-                update: jest.fn().mockReturnThis()
+                single: jest.fn().mockResolvedValue({ data: mockClaim, error: null })
             }));
 
-            claimService.getClaimById = jest.fn().mockResolvedValue(mockClaim);
-
-            const { validatePublicSignals } = require('@/service/zkp');
-            (validatePublicSignals as jest.Mock).mockReturnValue({ isValid: false, reason: 'Test validation failed' });
-
-            await expect(claimService.approveClaim('claim-123', reviewerId)).rejects.toThrow('Integritas Proof Gagal: Test validation failed');
+            await expect(claimService.approveClaim('claim-123', reviewerId)).rejects.toThrow('ZKP proof tidak valid');
         });
     });
 

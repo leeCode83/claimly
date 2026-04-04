@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
         const institution_id = user.user_metadata?.institution_id;
 
         if (role !== 'hospital_staff') {
+            console.log(role)
             return NextResponse.json({ error: 'Forbidden: Hanya hospital_staff yang dapat membuat rekam medis' }, { status: 403 });
         }
 

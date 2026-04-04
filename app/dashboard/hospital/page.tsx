@@ -29,8 +29,9 @@ const zkpStatusMessages: Record<ZkpStatus, string> = {
   preparing: "Mengambil data persiapan & Merkle Path...",
   generating: "Komputasi ZKP Proof di browser (mungkin butuh beberapa detik)...",
   submitting: "Mengirimkan Klaim & Proof ke server...",
-  success: "Klaim berhasil diajukan dengan bukti ZKP!",
-  error: "Gagal memproses bukti ZKP."
+  verifying: "Menunggu verifikasi sistem (Asynchronous MQ)...",
+  success: "Klaim berhasil diverifikasi dan disetujui!",
+  error: "Gagal memproses bukti ZKP atau verifikasi ditolak."
 };
 
 export default function HospitalDashboard() {

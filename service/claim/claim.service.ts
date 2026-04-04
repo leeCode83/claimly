@@ -9,6 +9,7 @@ import {
     MedicalRecord 
 } from "@/types/claim.types";
 import { encodeDate } from "@/lib/utils";
+import { enqueueVerification } from "@/lib/queue-helpers";
 
 export class ClaimService {
     constructor(private supabase: SupabaseClient) {}
@@ -348,6 +349,48 @@ export class ClaimService {
         };
     }
 
+    /**
+     * Meminta verifikasi ZKP untuk sebuah klaim secara asinkron.
+     * Dipanggil oleh insurance_reviewer via route handler.
+     * Jika sudah diverifikasi, kembalikan hasil cache.
+     * Jika belum, enqueue ke worker dan return status "verifying".
+     */
+    async requestVerification(claimId: string): Promise<{
+        claim_id: string;
+        status: "verifying" | "already_verified";
+        verification_result?: boolean;
+        verified_at?: string;
+        cached?: boolean;
+    }> {
+        const claim = await this.getClaimById(claimId) as unknown as Claim;
+        const zkpProof = claim.zkp_proofs as ZkpProof | undefined;
+
+        if (!zkpProof) {
+            const err = new Error("Klaim tidak memiliki ZKP proof untuk diverifikasi") as AppError;
+            err.status = 400;
+            throw err;
+        }
+
+        // Jika sudah pernah diverifikasi, return cache - tidak perlu re-enqueue
+        if (zkpProof.verification_result !== null) {
+            return {
+                claim_id: claimId,
+                status: "already_verified",
+                verification_result: zkpProof.verification_result,
+                verified_at: zkpProof.verified_at,
+                cached: true,
+            };
+        }
+
+        // Enqueue ke worker - async, non-blocking
+        await enqueueVerification(claimId, "manual_review");
+
+        return {
+            claim_id: claimId,
+            status: "verifying",
+        };
+    }
+
     async approveClaim(claimId: string, reviewerId: string, reviewNotes?: string) {
         // Fetch claim with proof for validation
         const { data: claim, error: fetchError } = await this.supabase
@@ -369,51 +412,17 @@ export class ClaimService {
             throw err;
         }
 
-        // Auto-verify if null
-        let isValid = zkpProof.verification_result;
-        if (isValid === null) {
-            try {
-                // Fetch full claim data for consistency check
-                const fullClaim = await this.getClaimById(claimId) as unknown as Claim;
-                const policyData = fullClaim.patient_policies?.insurance_policies;
-                const policy = Array.isArray(policyData) ? policyData[0] : policyData;
-                const proc = fullClaim.procedures;
-
-                const validation = validatePublicSignals(zkpProof.public_signals, {
-                    claimAmount: fullClaim.claim_amount,
-                    procedureDate: fullClaim.procedure_date_encoded,
-                    approvedDiagnosisRoot: policy?.approved_diagnosis_root || "",
-                    approvedProcedureRoot: policy?.approved_procedure_root || "",
-                    maxCoverageAmount: proc?.default_max_coverage || 0
-                });
-
-                if (!validation.isValid) {
-                    const err = new Error(`Integritas Proof Gagal: ${validation.reason}`) as AppError;
-                    err.status = 400;
-                    throw err;
-                }
-
-                const result = await verifyProof({
-                    proof: zkpProof.proof_json,
-                    publicSignals: zkpProof.public_signals
-                });
-                isValid = result.isValid;
-
-                await this.supabase
-                    .from('zkp_proofs')
-                    .update({
-                        verification_result: isValid,
-                        verified_at: new Date().toISOString()
-                    })
-                    .eq('id', zkpProof.id);
-            } catch (vErr) {
-                const err = new Error(`Gagal memverifikasi ZKP proof: ${vErr instanceof Error ? vErr.message : String(vErr)}`) as AppError;
-                err.status = 500;
-                throw err;
-            }
+        // Cek status verifikasi. Jika belum, enqueue dan throw 409 Conflict.
+        if (zkpProof.verification_result === null) {
+            await enqueueVerification(claimId, "manual_review");
+            const err = new Error(
+                "Verifikasi ZKP sedang diproses di latar belakang. Silakan coba approve kembali beberapa saat lagi setelah verifikasi selesai."
+            ) as AppError;
+            err.status = 409;
+            throw err;
         }
 
-        if (!isValid) {
+        if (!zkpProof.verification_result) {
             const err = new Error("Klaim tidak dapat disetujui: ZKP proof tidak valid (verifikasi gagal)") as AppError;
             err.status = 400;
             throw err;
@@ -471,6 +480,9 @@ export class ClaimService {
 
             // 5. Update status claim jadi submitted
             await this.supabase.from('claims').update({ status: 'submitted' }).eq('id', claimId);
+
+            // 6. Enqueue verifikasi asinkron ke BullMQ
+            await enqueueVerification(claimId, "submit");
         } catch (err) {
             await this.supabase.from('claims').update({ status: 'Fail generate proof' }).eq('id', claimId);
             throw err;
