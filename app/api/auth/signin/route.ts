@@ -13,6 +13,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ data }, { status: 200 });
   } catch (err) {
     const error = err as Error & { status?: number };
+    console.error('[Sign-in API Error]:', error.message, 'Status:', error.status);
     return NextResponse.json(
       { error: error.message || 'Internal Server Error' },
       { status: error.status || 500 }

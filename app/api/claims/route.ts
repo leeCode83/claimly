@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
 
     } catch (err) {
         const error = err as Error & { status?: number };
+        console.error('[GET Claims API Error]:', error.message, 'Status:', error.status);
         return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: error.status || 500 });
     }
 }
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest) {
 
     } catch (err) {
         const error = err as Error & { status?: number; claim_id?: string };
+        // console.error('[POST Claims API Error]:', error.message, 'Status:', error.status);
         const response: Record<string, string | undefined> = { error: error.message || 'Internal Server Error' };
         if (error.claim_id) response.claim_id = error.claim_id;
         return NextResponse.json(response, { status: error.status || 500 });

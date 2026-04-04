@@ -14,5 +14,5 @@ export async function enqueueVerification(
     source: VerificationSource = "submit"
 ): Promise<void> {
     await verificationQueue.add("verify-zkp", { claimId, source });
-    console.log(`[Queue] Enqueued ZKP verification: ${claimId} (source: ${source})`);
+    // console.log(`[Queue] Enqueued ZKP verification: ${claimId} (source: ${source})`);
 }
