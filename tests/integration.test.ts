@@ -344,6 +344,46 @@ describe('Claimly Integration Flow', () => {
   });
 
   /**
+   * Phase 3.1: Two-Step Claim Submission (Pending -> Submitted)
+   */
+  test('should submit a claim without proof and result in pending status', async () => {
+    const pendingPayload = {
+      patient_policy_id: patientPolicyId,
+      medical_record_id: medicalRecordId,
+      procedure_id: procedureIds[2], // different procedure
+      procedure_date: '2026-03-22',
+      claim_amount: 800000,
+    };
+
+    const { status, data, errorMsg } = await apiRequest('/api/claims', 'POST', pendingPayload, staffToken);
+    if (status !== 201) throw new Error(`Pending claim submission failed: ${errorMsg}`);
+    expect(data.data.id).toBeDefined();
+    expect(data.data.status).toBe('pending');
+    
+    const pendingClaimId = data.data.id;
+
+    // Now submit proof for this pending claim
+    const prepRes = await apiRequest('/api/claims/prepare', 'GET', pendingPayload, staffToken);
+    expect(prepRes.status).toBe(200);
+
+    const { generateProof } = await import('../service/zkp/proof');
+    const { proof, publicSignals } = await generateProof(prepRes.data.data);
+
+    const proofPayload = {
+      proof,
+      public_signals: publicSignals
+    };
+
+    const proofRes = await apiRequest(`/api/claims/${pendingClaimId}/proof`, 'POST', proofPayload, staffToken);
+    if (proofRes.status !== 200) throw new Error(`Submitting proof for pending claim failed: ${proofRes.errorMsg}`);
+    expect(proofRes.data.message).toContain('berhasil disubmit');
+
+    // Verify claim status is now 'submitted'
+    const finalRes = await apiRequest(`/api/claims/${pendingClaimId}`, 'GET', null, staffToken);
+    expect(finalRes.data.data.status).toBe('submitted');
+  });
+
+  /**
    * Phase 4: Claim Review (Insurance Reviewer)
    */
   test('should fetch claim detail and verify it (Async trigger)', async () => {

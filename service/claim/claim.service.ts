@@ -160,6 +160,58 @@ export class ClaimService {
         return claim;
     }
 
+    /**
+     * Submit proof for an existing claim that is in 'pending' status.
+     * Used in two-step submission: (1) create claim, (2) submit proof later.
+     */
+    async submitClaimProof(claimId: string, payload: {
+        proof: unknown,
+        public_signals: string[]
+    }) {
+        // 1. Fetch claim to verify status and get dependencies
+        const claim = await this.getClaimById(claimId) as unknown as Claim;
+        
+        if (claim.status !== 'pending') {
+            const err = new Error(`Hanya klaim berstatus 'pending' yang dapat ditambahkan proof. Status saat ini: ${claim.status}`) as AppError;
+            err.status = 400;
+            throw err;
+        }
+
+        if (!payload.proof || !payload.public_signals) {
+            const err = new Error("Proof and public_signals are required") as AppError;
+            err.status = 400;
+            throw err;
+        }
+
+        // 2. Fetch dependencies for validation
+        const { medRecord, patientPolicy, procedure } = await this.getClaimDependencies(
+            claim.medical_record_id,
+            claim.patient_policy_id,
+            claim.procedure_id
+        );
+
+        const policyData = patientPolicy.insurance_policies;
+        const policy = Array.isArray(policyData) ? policyData[0] : policyData;
+
+        // 3. Save proof and update status via internal helper
+        await this.saveProof(
+            claim.id,
+            {
+                proof: payload.proof,
+                public_signals: payload.public_signals,
+                claim_amount: claim.claim_amount
+            },
+            claim.procedure_date_encoded,
+            policy,
+            procedure
+        );
+
+        return { 
+            message: "Proof berhasil disubmit dan klaim sedang diverifikasi",
+            claim_id: claim.id 
+        };
+    }
+
     public async getZKPPreparationData(payload: {
         patient_policy_id: string,
         medical_record_id: string,
@@ -300,6 +352,7 @@ export class ClaimService {
         const procedure = fullClaim.procedures;
 
         const validation = validatePublicSignals(zkpProof.public_signals, {
+            procedureCode: procedure?.icd9_integer_encoding || 0,
             claimAmount: fullClaim.claim_amount,
             procedureDate: fullClaim.procedure_date_encoded,
             approvedDiagnosisRoot: policy?.approved_diagnosis_root || "",
@@ -453,6 +506,7 @@ export class ClaimService {
         try {
             // 4.1 Validasi Konsistensi Data dengan Public Signals ZKP
             const validation = validatePublicSignals(payload.public_signals, {
+                procedureCode: procedure.icd9_integer_encoding,
                 claimAmount: payload.claim_amount,
                 procedureDate: procedureDateEncoded,
                 approvedDiagnosisRoot: policy.approved_diagnosis_root,
@@ -462,6 +516,18 @@ export class ClaimService {
 
             if (!validation.isValid) {
                 const err = new Error(`Integritas data ZKP gagal: ${validation.reason}`) as AppError;
+                err.status = 400;
+                throw err;
+            }
+
+            // 4.2 Verifikasi Kriptografis (Synchronous)
+            const { isValid } = await verifyProof({
+                proof: payload.proof,
+                publicSignals: payload.public_signals
+            });
+
+            if (!isValid) {
+                const err = new Error("Verifikasi ZKP gagal: Proof tidak valid secara matematis atau tidak cocok dengan data.") as AppError;
                 err.status = 400;
                 throw err;
             }

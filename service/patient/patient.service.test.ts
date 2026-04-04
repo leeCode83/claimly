@@ -100,7 +100,7 @@ describe('PatientService', () => {
 
             const result = await service.getPatientById('p1');
 
-            expect(mockSupabase.select).toHaveBeenCalledWith('*, patient_policies(*, insurance_policies(*))');
+            expect(mockSupabase.select).toHaveBeenCalledWith('*, user:user_id(public_key), patient_policies(*, insurance_policies:policy_id(*))');
             expect(result).toEqual(mockData);
         });
     });

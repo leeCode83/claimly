@@ -132,10 +132,10 @@ export async function verifyProof(
  * This prevents "Parameter Tampering" where a user submits a valid proof for data A 
  * but sends data B in the request body.
  * 
- * Mapping (Groth16/SnarkJS standard for this circuit):
- * [0]: claimAmount
- * [1]: procedureCode
- * [2]: procedureDate (encoded)
+ * Mapping (Based on insurance_claim.circom main component):
+ * [0]: procedureCode
+ * [1]: procedureDate (encoded)
+ * [2]: claimAmount
  * [3]: approvedDiagnosisRoot
  * [4]: approvedProcedureRoot
  * [5]: maxCoverageAmount
@@ -143,6 +143,7 @@ export async function verifyProof(
 export function validatePublicSignals(
   publicSignals: string[],
   expected: {
+    procedureCode: number;
     claimAmount: number;
     procedureDate: number; // already encoded YYYYMMDD
     approvedDiagnosisRoot: string;
@@ -150,35 +151,32 @@ export function validatePublicSignals(
     maxCoverageAmount: number;
   }
 ): { isValid: boolean; reason?: string } {
-  // console.log('DEBUG: ZKP Public Signals:', publicSignals);
-  // console.log('DEBUG: Expected Data:', expected);
-
-  // 0. Check circuit output (out signal) - usually at index 0
-  if (BigInt(publicSignals[0]) !== BigInt(1)) {
-    return { isValid: false, reason: `Circuit output signal is not 1 (success). Got: ${publicSignals[0]}` };
+  // 1. Check procedureCode
+  if (BigInt(publicSignals[0]) !== BigInt(expected.procedureCode)) {
+    return { isValid: false, reason: `Procedure code mismatch: expected ${expected.procedureCode}, got ${publicSignals[0]}` };
   }
 
-  // 1. Check procedureDate
+  // 2. Check procedureDate
   if (BigInt(publicSignals[1]) !== BigInt(expected.procedureDate)) {
     return { isValid: false, reason: `Procedure date mismatch: expected ${expected.procedureDate}, got ${publicSignals[1]}` };
   }
 
-  // 2. Check claimAmount
+  // 3. Check claimAmount
   if (BigInt(publicSignals[2]) !== BigInt(expected.claimAmount)) {
     return { isValid: false, reason: `Claim amount mismatch: expected ${expected.claimAmount}, got ${publicSignals[2]}` };
   }
 
-  // 3. Check approvedDiagnosisRoot
+  // 4. Check approvedDiagnosisRoot
   if (publicSignals[3] !== expected.approvedDiagnosisRoot) {
     return { isValid: false, reason: `Diagnosis root mismatch: expected ${expected.approvedDiagnosisRoot}, got ${publicSignals[3]}` };
   }
 
-  // 4. Check approvedProcedureRoot
+  // 5. Check approvedProcedureRoot
   if (publicSignals[4] !== expected.approvedProcedureRoot) {
     return { isValid: false, reason: `Procedure root mismatch: expected ${expected.approvedProcedureRoot}, got ${publicSignals[4]}` };
   }
 
-  // 5. Check maxCoverageAmount
+  // 6. Check maxCoverageAmount
   if (BigInt(publicSignals[5]) !== BigInt(expected.maxCoverageAmount)) {
     return { isValid: false, reason: `Max coverage mismatch: expected ${expected.maxCoverageAmount}, got ${publicSignals[5]}` };
   }

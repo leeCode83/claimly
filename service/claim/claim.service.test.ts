@@ -53,7 +53,7 @@ describe('ClaimService', () => {
         procedure_date: '2026-03-20',
         claim_amount: 500000,
         proof: { pi_a: ['1'] },
-        public_signals: ['123']
+        public_signals: ['123', '20260320', '500000', 'rootA', 'rootB', '1000000']
     };
     const submitterId = 'user-123';
 
@@ -165,6 +165,54 @@ describe('ClaimService', () => {
     });
 
     // ─────────────────────────────────────────────
+    // submitClaimProof
+    // ─────────────────────────────────────────────
+    describe('submitClaimProof', () => {
+        it('harus berhasil submit proof untuk klaim berstatus pending', async () => {
+            setupHappyMocks();
+            const mockClaim = { 
+                id: 'claim-123', 
+                status: 'pending', 
+                claim_amount: 500000,
+                medical_record_id: 'mr-123',
+                patient_policy_id: 'policy-123',
+                procedure_id: 'proc-123',
+                procedure_date_encoded: 20260320
+            };
+            
+            // Mock getClaimById via member function override for simplicity in test
+            claimService.getClaimById = jest.fn().mockResolvedValue(mockClaim);
+            
+            // Mock internal saveProof
+            (claimService as any).saveProof = jest.fn().mockResolvedValue(undefined);
+
+            const result = await claimService.submitClaimProof('claim-123', {
+                proof: mockPayload.proof,
+                public_signals: mockPayload.public_signals
+            });
+
+            expect(result.message).toContain('berhasil disubmit');
+            expect((claimService as any).saveProof).toHaveBeenCalled();
+        });
+
+        it('harus error jika klaim tidak berstatus pending (misal: submitted)', async () => {
+            claimService.getClaimById = jest.fn().mockResolvedValue({ id: '123', status: 'submitted' });
+
+            await expect(claimService.submitClaimProof('123', {
+                proof: {},
+                public_signals: []
+            })).rejects.toThrow("Hanya klaim berstatus 'pending' yang dapat ditambahkan proof");
+        });
+
+        it('harus error jika payload proof/signals kosong', async () => {
+            claimService.getClaimById = jest.fn().mockResolvedValue({ id: '123', status: 'pending' });
+
+            await expect(claimService.submitClaimProof('123', {} as any))
+                .rejects.toThrow("Proof and public_signals are required");
+        });
+    });
+
+    // ─────────────────────────────────────────────
     // saveProof (private method, diakses via cast)
     // ─────────────────────────────────────────────
     describe('saveProof', () => {
@@ -180,7 +228,7 @@ describe('ClaimService', () => {
         };
         const mockProofPayload = {
             proof: { pi_a: ['1'] },
-            public_signals: ['1', '20260320', '500000', 'rootA', 'rootB', '1000000'],
+            public_signals: ['456', '20260320', '500000', 'rootA', 'rootB', '1000000'],
             claim_amount: 500000
         };
 
