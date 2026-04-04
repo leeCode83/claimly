@@ -260,7 +260,7 @@ export class ClaimService {
     async getClaimById(id: string) {
         const { data: claim, error: claimError } = await this.supabase
             .from('claims')
-            .select('*, zkp_proofs(*), procedures(*), patient_policies(*, insurance_policies(*))')
+            .select('*, zkp_proofs(*), procedures:procedure_id(*), patient_policies:patient_policy_id(*, insurance_policies:policy_id(*))')
             .eq('id', id)
             .single();
 
@@ -513,10 +513,10 @@ export class ClaimService {
     private async getClaimDependencies(medical_record_id: string, patient_policy_id: string, procedure_id: string) {
         const [mrRes, ppRes, procRes] = await Promise.all([
             this.supabase.from('medical_records')
-                .select('diagnosis_date_encoded, diagnosis:diagnoses(icd10_integer_encoding)')
+                .select('diagnosis_date_encoded, diagnosis:diagnosis_id(icd10_integer_encoding)')
                 .eq('id', medical_record_id).single(),
             this.supabase.from('patient_policies')
-                .select('id, start_date, end_date, insurance_policies(id, approved_diagnosis_root, approved_procedure_root)')
+                .select('id, start_date, end_date, insurance_policies:policy_id(id, approved_diagnosis_root, approved_procedure_root)')
                 .eq('id', patient_policy_id).single(),
             this.supabase.from('procedures')
                 .select('id, icd9_integer_encoding, default_max_coverage')
