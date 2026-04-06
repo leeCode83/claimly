@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { AuthUser } from '@/types/auth'
 
 /**
  * Helper untuk mendapatkan Supabase Client yang sudah terautentikasi.
@@ -35,13 +36,15 @@ export async function getSupabaseServer(request: Request) {
   )
 
   const {
-    data: { user },
+    data: { user: rawUser },
     error,
   } = await supabase.auth.getUser()
 
-  if (error || !user) {
+  if (error || !rawUser) {
     return { supabase, user: null, error }
   }
+
+  const user = rawUser as AuthUser;
 
   return { supabase, user, error: null }
 }

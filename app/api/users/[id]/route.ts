@@ -16,7 +16,7 @@ export async function GET(
         const params = await props.params;
         const id = params.id;
 
-        const role = user.user_metadata?.role;
+        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
         
         // Authorization: hanya admin atau user yang bersangkutan
         if (role !== 'admin' && user.id !== id) {
@@ -52,7 +52,7 @@ export async function PATCH(
         
         const body = await request.json();
 
-        const role = user.user_metadata?.role;
+        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
         
         // Authorization: update role atau institution_id hanya Admin
         if (role !== 'admin') {
@@ -90,7 +90,7 @@ export async function DELETE(
         const params = await props.params;
         const id = params.id;
 
-        const role = user.user_metadata?.role;
+        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
         
         // Authorization: hanya admin atau user yang bersangkutan
         if (role !== 'admin' && user.id !== id) {

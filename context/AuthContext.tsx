@@ -42,12 +42,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { data: { session } } = await supabase.auth.getSession()
         if (session) {
           setAccessToken(session.access_token)
+          const md = session.user.user_metadata;
           const userObj = {
             id: session.user.id,
             email: session.user.email || "",
-            role: session.user.user_metadata?.custom_claims?.role || session.user.user_metadata?.role,
-            full_name: session.user.user_metadata?.name || session.user.user_metadata?.full_name || session.user.user_metadata?.custom_claims?.given_name,
-            institution_id: session.user.user_metadata?.custom_claims?.institution_id || session.user.user_metadata?.institution_id
+            role: md?.custom_claims?.role || md?.role,
+            full_name: md?.name || md?.full_name || md?.custom_claims?.given_name,
+            institution_id: md?.custom_claims?.institution_id || md?.institution_id
           }
           setUser(userObj)
           // Keep localStorage for backward compatibility with other frontend components
@@ -62,12 +63,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
         if (session) {
           setAccessToken(session.access_token)
+          const md = session.user.user_metadata;
           const userObj = {
             id: session.user.id,
             email: session.user.email || "",
-            role: session.user.user_metadata?.custom_claims?.role || session.user.user_metadata?.role,
-            full_name: session.user.user_metadata?.name || session.user.user_metadata?.full_name || session.user.user_metadata?.custom_claims?.given_name,
-            institution_id: session.user.user_metadata?.custom_claims?.institution_id || session.user.user_metadata?.institution_id
+            role: md?.custom_claims?.role || md?.role,
+            full_name: md?.name || md?.full_name || md?.custom_claims?.given_name,
+            institution_id: md?.custom_claims?.institution_id || md?.institution_id
           }
           setUser(userObj)
           localStorage.setItem("claimly_token", session.access_token)

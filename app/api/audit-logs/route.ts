@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const role = user.user_metadata?.role;
+        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
 
         if (role !== 'admin') {
             return NextResponse.json(

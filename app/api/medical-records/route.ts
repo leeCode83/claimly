@@ -7,8 +7,8 @@ export async function GET(request: NextRequest) {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const role = user.user_metadata?.role;
-        const institution_id = user.user_metadata?.institution_id;
+        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
+        const institution_id = (user.user_metadata?.custom_claims?.institution_id || user.user_metadata?.institution_id);
 
         if (role !== 'hospital_staff') {
             return NextResponse.json({ error: 'Forbidden: Hanya hospital_staff yang dapat mencari rekam medis' }, { status: 403 });
@@ -48,8 +48,8 @@ export async function POST(request: NextRequest) {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const role = user.user_metadata?.role;
-        const institution_id = user.user_metadata?.institution_id;
+        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
+        const institution_id = (user.user_metadata?.custom_claims?.institution_id || user.user_metadata?.institution_id);
 
         if (role !== 'hospital_staff') {
             console.log(role)

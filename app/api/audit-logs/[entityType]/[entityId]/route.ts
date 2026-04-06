@@ -10,7 +10,7 @@ export async function GET(
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const role = user.user_metadata?.role;
+        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
 
         const allowedRoles = ['admin', 'insurance_reviewer', 'hospital_staff'];
         if (!role || !allowedRoles.includes(role)) {

@@ -13,7 +13,7 @@ export async function GET(
         const params = await props.params;
         const claimId = params.id;
 
-        const role = user.user_metadata?.role;
+        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
 
         // Roles yang diperbolehkan: hospital_staff, insurance_reviewer, patient
         const allowedRoles = ['hospital_staff', 'insurance_reviewer', 'patient', 'admin'];

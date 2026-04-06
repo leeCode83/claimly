@@ -110,10 +110,73 @@ export const useUsers = (token?: string | null) => {
         }
     };
 
+    /**
+     * Fetch a paginated list of users (Admin only).
+     * @param params { page, limit }
+     */
+    const getUsers = useCallback(async (params?: { page?: number; limit?: number }) => {
+        setIsLoading(true);
+        try {
+            const url = new URL("/api/users", window.location.origin);
+            if (params?.page) url.searchParams.append("page", params.page.toString());
+            if (params?.limit) url.searchParams.append("limit", params.limit.toString());
+
+            const response = await fetch(url.toString(), {
+                headers: getHeaders(false),
+            });
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || "Gagal mengambil daftar user");
+            }
+
+            return result;
+        } catch (error: any) {
+            console.error("[useUsers.getUsers] Error:", error.message);
+            throw error;
+        } finally {
+            setIsLoading(false);
+        }
+    }, [token]);
+
+    /**
+     * Delete a user (Admin only).
+     * @param id User UUID
+     */
+    const deleteUser = async (id: string) => {
+        setIsLoading(true);
+        try {
+            const response = await fetch(`/api/users/${id}`, {
+                method: "DELETE",
+                headers: getHeaders(false),
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                const message = result.error || "Gagal menghapus user.";
+                toast.error("Gagal Menghapus", { description: message });
+                throw new Error(message);
+            }
+
+            toast.success("User Dihapus", {
+                description: "Data user telah berhasil dihapus dari sistem.",
+            });
+
+            return result.data;
+        } catch (error: any) {
+            throw error;
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     return {
         isLoading,
         getMe,
+        getUsers,
         getUserById,
         updateUser,
+        deleteUser,
     };
 };

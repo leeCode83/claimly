@@ -14,7 +14,7 @@ export async function POST(
         const claimId = params.id;
         const body = await request.json();
 
-        const role = user.user_metadata?.role;
+        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
         if (role !== 'hospital_staff') {
             return NextResponse.json({ error: 'Forbidden: Hanya hospital_staff yang dapat mengirimkan proof klaim' }, { status: 403 });
         }
