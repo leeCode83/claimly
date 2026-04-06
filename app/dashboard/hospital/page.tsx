@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { 
   ShieldPlusIcon, 
   UsersIcon, 
@@ -13,6 +13,9 @@ import {
   AlertCircleIcon,
   FingerprintIcon
 } from "lucide-react"
+
+import { usePatients } from "@/hooks/usePatients"
+import { useInsurancePolicies } from "@/hooks/useInsurancePolicies"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -39,6 +42,38 @@ export default function HospitalDashboard() {
   const { accessToken } = useAuthContext()
   const { submitClaimWithZkp, zkpStatus, isLoading, zkpError } = useClaims(accessToken)
   
+  const { getPatients, getPatient, registerPatient, addPatientPolicy, isLoading: isPatientOpLoading } = usePatients(accessToken)
+  const { getPolicies } = useInsurancePolicies(accessToken)
+
+  // Insurance Policies for Select
+  const [policiesData, setPoliciesData] = useState<any[]>([])
+
+  // State
+  const [patients, setPatients] = useState<any[]>([])
+  const [isPatientLoading, setIsPatientLoading] = useState(false)
+  const [isNewPatientOpen, setIsNewPatientOpen] = useState(false)
+  const [newPatientForm, setNewPatientForm] = useState({
+    nik: "",
+    full_name: "",
+    birth_year: new Date().getFullYear() - 30,
+    gender: "M" as "M" | "F",
+    user_id: ""
+  })
+
+  // Patient Detail & Policy State
+  const [isPatientDetailOpen, setIsPatientDetailOpen] = useState(false)
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
+  const [patientDetail, setPatientDetail] = useState<any | null>(null)
+  const [isPatientDetailLoading, setIsPatientDetailLoading] = useState(false)
+  
+  const [isAddPolicyMode, setIsAddPolicyMode] = useState(false)
+  const [newPolicyForm, setNewPolicyForm] = useState({
+    policy_id: "",
+    policy_number: "",
+    start_date: new Date().toISOString().split('T')[0],
+    end_date: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0]
+  })
+  
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [formData, setFormData] = useState({
     patient_policy_id: "77777777-7777-7777-7777-777777777777", // Placeholder ID
@@ -48,29 +83,329 @@ export default function HospitalDashboard() {
     claim_amount: 500000
   })
 
+  const loadPatients = async () => {
+    setIsPatientLoading(true)
+    try {
+      const res = await getPatients()
+      setPatients(res.data || [])
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setIsPatientLoading(false)
+    }
+  }
+
+  // Load patient list and policies when opening tab
+  useEffect(() => {
+    if (accessToken && activeTab === "patients") {
+      loadPatients()
+      getPolicies({ limit: 100 }).then(res => setPoliciesData(res.data || [])).catch(console.error)
+    }
+  }, [accessToken, activeTab, getPatients, getPolicies])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
       await submitClaimWithZkp(formData)
-      // Logic after success can be added here (e.g. redirect or clear form)
       setTimeout(() => setIsDialogOpen(false), 2000)
+    } catch (err) { }
+  }
+
+  const handleRegisterPatient = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      const payload: any = { ...newPatientForm }
+      if (!payload.user_id) delete payload.user_id // Opsional
+
+      await registerPatient(payload)
+      setIsNewPatientOpen(false)
+      setNewPatientForm({
+        nik: "",
+        full_name: "",
+        birth_year: new Date().getFullYear() - 30,
+        gender: "M",
+        user_id: ""
+      })
+      loadPatients()
+    } catch (err) { }
+  }
+
+  const handleViewDetail = async (id: string) => {
+    setSelectedPatientId(id);
+    setIsPatientDetailOpen(true);
+    setIsPatientDetailLoading(true);
+    setIsAddPolicyMode(false);
+    try {
+      const res = await getPatient(id);
+      setPatientDetail(res);
     } catch (err) {
-      // Error handled by hook toast
+      console.error(err);
+    } finally {
+      setIsPatientDetailLoading(false);
+    }
+  }
+
+  const handleAddPolicy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPatientId) return;
+    
+    try {
+      setIsPatientDetailLoading(true);
+      await addPatientPolicy(selectedPatientId, newPolicyForm);
+      
+      // Reload details after adding policy
+      const res = await getPatient(selectedPatientId);
+      setPatientDetail(res);
+      
+      setIsAddPolicyMode(false);
+      setNewPolicyForm({
+        policy_id: "",
+        policy_number: "",
+        start_date: new Date().toISOString().split('T')[0],
+        end_date: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0]
+      });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsPatientDetailLoading(false);
     }
   }
 
   return (
     <div className="container mx-auto py-8 px-4 space-y-8">
+      {/* Patient Detail Modal */}
+      <Dialog open={isPatientDetailOpen} onOpenChange={setIsPatientDetailOpen}>
+        <DialogContent className="sm:max-w-[650px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Detail Pasien</DialogTitle>
+            <DialogDescription>
+              Informasi profil dan polis asuransi (Patient Policy) yang aktif.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {isPatientDetailLoading && !patientDetail ? (
+            <div className="flex flex-col items-center justify-center py-8">
+              <Loader2Icon className="size-8 animate-spin text-primary" />
+              <p className="mt-4 text-sm text-muted-foreground">Memuat detail pasien...</p>
+            </div>
+          ) : patientDetail ? (
+            <div className="space-y-6">
+              {/* Profile Card */}
+              <div className="rounded-lg border p-4 grid grid-cols-2 gap-4 bg-muted/20">
+                <div>
+                  <p className="text-xs text-muted-foreground">Nama Lengkap</p>
+                  <p className="font-medium">{patientDetail.full_name}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">ID Pasien</p>
+                  <p className="font-mono text-xs mt-0.5">{patientDetail.id}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Tahun Lahir & Gender</p>
+                  <p className="font-medium">{patientDetail.birth_year} &bull; {patientDetail.gender === 'M' ? 'Laki-laki' : 'Perempuan'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">User UUID Terikat</p>
+                  <p className="font-mono text-xs mt-0.5 truncate" title={patientDetail.user_id || "Belum ditautkan"}>{patientDetail.user_id || "Belum ditautkan"}</p>
+                </div>
+              </div>
+
+              {/* Policies List */}
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <h3 className="font-semibold px-1">Polis Asuransi Pasien</h3>
+                  {!isAddPolicyMode && (
+                    <Button size="sm" onClick={() => setIsAddPolicyMode(true)}>
+                      <PlusIcon className="size-4 mr-2" />
+                      Tambah Polis
+                    </Button>
+                  )}
+                </div>
+
+                {isAddPolicyMode ? (
+                  <form onSubmit={handleAddPolicy} className="rounded-lg border p-4 space-y-4 bg-muted/10 animate-in fade-in zoom-in-95 duration-200">
+                    <h4 className="font-medium text-sm">Form Tambah Polis</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="policy_id">Polis Induk (Asuransi) <span className="text-destructive">*</span></Label>
+                        <select 
+                          id="policy_id" 
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+                          value={newPolicyForm.policy_id}
+                          onChange={(e) => setNewPolicyForm({...newPolicyForm, policy_id: e.target.value})}
+                          required
+                        >
+                          <option value="" disabled>Pilih Polis...</option>
+                          {policiesData.map((pol: any) => (
+                            <option key={pol.id} value={pol.id}>{pol.policy_name || `Polis ID: ${pol.id.substring(0,8)}`}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="policy_number">Nomor Polis Pasien <span className="text-destructive">*</span></Label>
+                        <Input 
+                          id="policy_number" 
+                          placeholder="Contoh: POL-123456" 
+                          value={newPolicyForm.policy_number}
+                          onChange={(e) => setNewPolicyForm({...newPolicyForm, policy_number: e.target.value})}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="start_date">Tanggal Aktif (Start) <span className="text-destructive">*</span></Label>
+                        <Input 
+                          id="start_date" 
+                          type="date"
+                          value={newPolicyForm.start_date}
+                          onChange={(e) => setNewPolicyForm({...newPolicyForm, start_date: e.target.value})}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="end_date">Tanggal Berakhir (End) <span className="text-destructive">*</span></Label>
+                        <Input 
+                          id="end_date" 
+                          type="date"
+                          value={newPolicyForm.end_date}
+                          onChange={(e) => setNewPolicyForm({...newPolicyForm, end_date: e.target.value})}
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setIsAddPolicyMode(false)}>Batal</Button>
+                      <Button type="submit" size="sm" disabled={isPatientDetailLoading}>
+                        {isPatientDetailLoading && <Loader2Icon className="size-3 animate-spin mr-2" />}
+                        Simpan Polis
+                      </Button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="space-y-2">
+                    {patientDetail.patient_policies?.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-6 border rounded-md">Belum ada polis asuransi yang terdaftar untuk pasien ini.</p>
+                    ) : (
+                      patientDetail.patient_policies?.map((policy: any) => (
+                        <div key={policy.id} className="flex justify-between items-center p-3 border rounded-md hover:bg-muted/30 transition-colors">
+                          <div>
+                            <p className="font-medium text-sm">{policy.policy_number}</p>
+                            <div className="flex gap-2 items-center mt-1">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${policy.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                {policy.is_active ? 'AKTIF' : 'NON-AKTIF'}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(policy.start_date).toLocaleDateString('id-ID')} - {new Date(policy.end_date).toLocaleDateString('id-ID')}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right flex flex-col items-end">
+                            <span className="text-[10px] text-muted-foreground">Insurance Policy ID:</span>
+                            <span className="text-xs font-mono text-primary w-24 truncate" title={policy.policy_id}>{policy.policy_id}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard Rumah Sakit</h1>
           <p className="text-muted-foreground">Kelola pasien, rekam medis, dan ajukan klaim asuransi.</p>
         </div>
         <div className="flex gap-2">
-          <Button className="gap-2">
-            <PlusIcon className="size-4" />
-            Pasien Baru
-          </Button>
+          <Dialog open={isNewPatientOpen} onOpenChange={setIsNewPatientOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2">
+                <PlusIcon className="size-4" />
+                Pasien Baru
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle>Daftarkan Pasien Baru</DialogTitle>
+                <DialogDescription>
+                  Masukkan data diri pasien. Anda dapat menghubungkan akun pengguna (UUID) secara opsional.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleRegisterPatient} className="space-y-4 pt-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="nik">NIK KTP <span className="text-destructive">*</span></Label>
+                    <Input 
+                      id="nik" 
+                      placeholder="16 Digit NIK" 
+                      value={newPatientForm.nik}
+                      onChange={(e) => setNewPatientForm({...newPatientForm, nik: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="full_name">Nama Lengkap <span className="text-destructive">*</span></Label>
+                    <Input 
+                      id="full_name" 
+                      placeholder="Nama sesuai KTP" 
+                      value={newPatientForm.full_name}
+                      onChange={(e) => setNewPatientForm({...newPatientForm, full_name: e.target.value})}
+                      required
+                    />
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="birth_year">Tahun Lahir <span className="text-destructive">*</span></Label>
+                    <Input 
+                      id="birth_year" 
+                      type="number"
+                      value={newPatientForm.birth_year}
+                      onChange={(e) => setNewPatientForm({...newPatientForm, birth_year: parseInt(e.target.value)})}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="gender">Jenis Kelamin <span className="text-destructive">*</span></Label>
+                    <select 
+                      id="gender"
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      value={newPatientForm.gender}
+                      onChange={(e) => setNewPatientForm({...newPatientForm, gender: e.target.value as "M" | "F"})}
+                      required
+                    >
+                      <option value="M">Laki-laki (M)</option>
+                      <option value="F">Perempuan (F)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="user_id">User UUID (Opsional)</Label>
+                  <Input 
+                    id="user_id" 
+                    placeholder="Masukkan UUID akun aplikasi (opsional)" 
+                    value={newPatientForm.user_id}
+                    onChange={(e) => setNewPatientForm({...newPatientForm, user_id: e.target.value})}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    UUID diperlukan jika pasien memiliki akun aplikasi Claimly.
+                  </p>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button type="button" variant="ghost" onClick={() => setIsNewPatientOpen(false)}>Kembali</Button>
+                  <Button type="submit" disabled={isPatientOpLoading}>
+                    {isPatientOpLoading ? <Loader2Icon className="size-4 animate-spin mr-2" /> : null}
+                    Daftarkan
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -113,28 +448,41 @@ export default function HospitalDashboard() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Nama Lengkap</TableHead>
-                    <TableHead>NIK / ID</TableHead>
+                    <TableHead>Jenis Kelamin</TableHead>
+                    <TableHead>Tahun Lahir</TableHead>
+                    <TableHead>ID Pasien</TableHead>
                     <TableHead>Terdaftar Sejak</TableHead>
                     <TableHead className="text-right">Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow>
-                    <TableCell className="font-medium">Andi Budiman</TableCell>
-                    <TableCell>3174090101850001</TableCell>
-                    <TableCell>12 Mar 2026</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="outline" size="sm">Detail</Button>
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell className="font-medium">Siti Aminah</TableCell>
-                    <TableCell>3172081503900002</TableCell>
-                    <TableCell>15 Mar 2026</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="outline" size="sm">Detail</Button>
-                    </TableCell>
-                  </TableRow>
+                  {isPatientLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-6">
+                        <Loader2Icon className="size-6 animate-spin mx-auto text-primary" />
+                        <p className="mt-2 text-sm text-muted-foreground">Memuat data pasien...</p>
+                      </TableCell>
+                    </TableRow>
+                  ) : patients.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        Belum ada pasien yang didaftarkan ke rumah sakit ini.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    patients.map((p) => (
+                      <TableRow key={p.id}>
+                        <TableCell className="font-medium">{p.full_name || "Tidak ada nama"}</TableCell>
+                        <TableCell>{p.gender === 'M' ? 'Laki-laki' : p.gender === 'F' ? 'Perempuan' : p.gender}</TableCell>
+                        <TableCell>{p.birth_year || "-"}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground font-mono">{p.id.split('-')[0]}...</TableCell>
+                        <TableCell>{new Date(p.created_at).toLocaleDateString('id-ID')}</TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="outline" size="sm" onClick={() => handleViewDetail(p.id)}>Detail</Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
