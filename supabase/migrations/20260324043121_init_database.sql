@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- 1. INSTITUTIONS
 -- ============================================================
 CREATE TABLE institutions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('hospital', 'insurance')),
     license_number TEXT NOT NULL UNIQUE,
@@ -36,7 +36,7 @@ CREATE TABLE users (
 -- 3. DIAGNOSES (master data ICD-10)
 -- ============================================================
 CREATE TABLE diagnoses (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     icd10_code TEXT NOT NULL UNIQUE,
     icd10_integer_encoding INTEGER NOT NULL UNIQUE,
     description TEXT NOT NULL,
@@ -48,7 +48,7 @@ CREATE TABLE diagnoses (
 -- 4. PROCEDURES (master data ICD-9-CM)
 -- ============================================================
 CREATE TABLE procedures (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     icd9_code TEXT NOT NULL UNIQUE,
     icd9_integer_encoding INTEGER NOT NULL UNIQUE,
     description TEXT NOT NULL,
@@ -61,7 +61,7 @@ CREATE TABLE procedures (
 -- 5. INSURANCE POLICIES
 -- ============================================================
 CREATE TABLE insurance_policies (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     insurance_institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE RESTRICT,
     policy_name TEXT NOT NULL,
     max_coverage_amount BIGINT NOT NULL,
@@ -78,7 +78,7 @@ CREATE TABLE insurance_policies (
 -- 6. POLICY COVERED DIAGNOSES (leaf data Diagnosis Merkle Tree)
 -- ============================================================
 CREATE TABLE policy_covered_diagnoses (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     policy_id UUID NOT NULL REFERENCES insurance_policies(id) ON DELETE CASCADE,
     diagnosis_id UUID NOT NULL REFERENCES diagnoses(id) ON DELETE RESTRICT,
     merkle_leaf_index INTEGER NOT NULL,
@@ -91,7 +91,7 @@ CREATE TABLE policy_covered_diagnoses (
 -- 7. POLICY COVERED PROCEDURES (leaf data Procedure Merkle Tree)
 -- ============================================================
 CREATE TABLE policy_covered_procedures (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     policy_id UUID NOT NULL REFERENCES insurance_policies(id) ON DELETE CASCADE,
     procedure_id UUID NOT NULL REFERENCES procedures(id) ON DELETE RESTRICT,
     merkle_leaf_index INTEGER NOT NULL,
@@ -104,7 +104,7 @@ CREATE TABLE policy_covered_procedures (
 -- 8. PATIENTS
 -- ============================================================
 CREATE TABLE patients (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     nik_hash TEXT NOT NULL UNIQUE,
     full_name TEXT NOT NULL,
@@ -118,7 +118,7 @@ CREATE TABLE patients (
 -- 9. PATIENT POLICIES (junction table patients <-> insurance_policies)
 -- ============================================================
 CREATE TABLE patient_policies (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE RESTRICT,
     policy_id UUID NOT NULL REFERENCES insurance_policies(id) ON DELETE RESTRICT,
     policy_number TEXT NOT NULL UNIQUE,
@@ -134,7 +134,7 @@ CREATE TABLE patient_policies (
 -- 10. MEDICAL RECORDS
 -- ============================================================
 CREATE TABLE medical_records (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE RESTRICT,
     hospital_institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE RESTRICT,
     diagnosis_id UUID NOT NULL REFERENCES diagnoses(id) ON DELETE RESTRICT,
@@ -149,7 +149,7 @@ CREATE TABLE medical_records (
 -- 11. CLAIMS
 -- ============================================================
 CREATE TABLE claims (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     patient_policy_id UUID NOT NULL REFERENCES patient_policies(id) ON DELETE RESTRICT,
     medical_record_id UUID NOT NULL REFERENCES medical_records(id) ON DELETE RESTRICT,
     procedure_id UUID NOT NULL REFERENCES procedures(id) ON DELETE RESTRICT,
@@ -171,7 +171,7 @@ CREATE TABLE claims (
 -- 12. ZKP PROOFS
 -- ============================================================
 CREATE TABLE zkp_proofs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     claim_id UUID NOT NULL UNIQUE REFERENCES claims(id) ON DELETE CASCADE,
     proof_json JSONB NOT NULL,
     public_signals JSONB NOT NULL,
@@ -184,7 +184,7 @@ CREATE TABLE zkp_proofs (
 -- 13. AUDIT LOGS (append-only)
 -- ============================================================
 CREATE TABLE audit_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
     action TEXT NOT NULL,
     entity_type TEXT NOT NULL,

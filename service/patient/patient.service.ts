@@ -105,13 +105,13 @@ export class PatientService {
     async getPatientById(id: string) {
         const { data, error } = await this.supabase
             .from('patients')
-            .select('*, patient_policies(*, insurance_policies(*))')
+            .select('*, user:user_id(public_key), patient_policies(*, insurance_policies:policy_id(*))')
             .eq('id', id)
             .single();
 
         if (error) {
             const err: any = new Error(error.message);
-            err.status = 404;
+            err.status = error.code === 'PGRST116' ? 404 : 500;
             throw err;
         }
 
@@ -157,7 +157,7 @@ export class PatientService {
 
         const { data, error, count } = await this.supabase
             .from('patient_policies')
-            .select('*, insurance_policies(*)', { count: 'exact' })
+            .select('*, insurance_policies:policy_id(*)', { count: 'exact' })
             .eq('patient_id', patientId)
             .order('created_at', { ascending: false })
             .range(offset, offset + limit - 1);
@@ -182,7 +182,7 @@ export class PatientService {
     async getPatientPolicyById(patientId: string, patientPolicyId: string) {
         const { data, error } = await this.supabase
             .from('patient_policies')
-            .select('*, insurance_policies(*)')
+            .select('*, insurance_policies:policy_id(*)')
             .eq('id', patientPolicyId)
             .eq('patient_id', patientId)
             .single();
@@ -305,7 +305,7 @@ export class PatientService {
                 end_date: payload.end_date,
                 is_active: true
             })
-            .select('*, insurance_policies(*)')
+            .select('*, insurance_policies:policy_id(*)')
             .single();
 
         if (error) {

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
-import { UserService } from "@/service/user/user.service";
 import { PatientService } from "@/service/patient/patient.service";
 
 export async function GET(request: NextRequest) {
@@ -8,10 +7,9 @@ export async function GET(request: NextRequest) {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const userService = new UserService(supabase);
-        const requesterProfile = await userService.getMe(user.id);
+        const role = user.user_metadata?.role;
 
-        if (requesterProfile.role !== 'patient') {
+        if (role !== 'patient') {
             return NextResponse.json({ error: 'Forbidden: Hanya pasien yang dapat melihat daftar polis asuransi mereka sendiri' }, { status: 403 });
         }
 

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
-import { UserService } from "@/service/user/user.service";
 import { PatientService } from "@/service/patient/patient.service";
 
 interface Profile {
@@ -45,12 +44,13 @@ export async function GET(
         const params = await props.params;
         const patientId = params.id;
 
-        const userService = new UserService(supabase);
-        const patientService = new PatientService(supabase);
+        const role = user.user_metadata?.role;
+        const institution_id = user.user_metadata?.institution_id;
 
-        const requesterProfile = await userService.getMe(user.id);
+        const patientService = new PatientService(supabase);
         const patient = await patientService.getPatientById(patientId);
 
+        const requesterProfile = { role, institution_id };
         const accessError = checkPatientAccess(user.id, requesterProfile as unknown as Profile, patient as unknown as Patient);
         if (accessError) return NextResponse.json({ error: accessError }, { status: 403 });
 
@@ -82,13 +82,13 @@ export async function POST(
         const params = await props.params;
         const patientId = params.id;
 
-        const userService = new UserService(supabase);
+        const role = user.user_metadata?.role;
+        const institution_id = user.user_metadata?.institution_id;
+
         const patientService = new PatientService(supabase);
 
-        const requesterProfile = await userService.getMe(user.id);
-
         // Hanya hospital_staff yang boleh mendaftarkan pasien ke polis
-        if (requesterProfile.role !== 'hospital_staff') {
+        if (role !== 'hospital_staff') {
             return NextResponse.json(
                 { error: 'Forbidden: Hanya hospital_staff yang dapat mendaftarkan pasien ke polis' },
                 { status: 403 }
@@ -97,6 +97,7 @@ export async function POST(
 
         // Pastikan hospital_staff ini dari institusi yang mengelola pasien tersebut
         const patient = await patientService.getPatientById(patientId);
+        const requesterProfile = { role, institution_id };
         const accessError = checkPatientAccess(user.id, requesterProfile as unknown as Profile, patient as unknown as Patient);
         if (accessError) return NextResponse.json({ error: accessError }, { status: 403 });
 

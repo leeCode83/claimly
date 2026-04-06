@@ -2,18 +2,20 @@ import { NextResponse } from 'next/server';
 import { getSupabaseServer } from '@/supabase-config';
 import { AuthService } from '@/service/auth/auth.service';
 
+/**
+ * Endpoint for user sign out.
+ * Destroys the session on the server side (Supabase).
+ */
 export async function POST(request: Request) {
   try {
     const { supabase } = await getSupabaseServer(request);
-    const body = await request.json();
-
     const authService = new AuthService(supabase);
-    const data = await authService.signIn(body);
+    const result = await authService.signOut();
 
-    return NextResponse.json({ data }, { status: 200 });
+    return NextResponse.json(result, { status: 200 });
   } catch (err) {
     const error = err as Error & { status?: number };
-    console.error('[Sign-in API Error]:', error.message, 'Status:', error.status);
+    console.error('[SignOut Route] Error:', error.message);
     return NextResponse.json(
       { error: error.message || 'Internal Server Error' },
       { status: error.status || 500 }
