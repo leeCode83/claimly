@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
-import { UserService } from "@/service/user/user.service";
 import { AuditLogService } from "@/service/audit-log/audit-log.service";
 
 export async function GET(request: NextRequest) {
@@ -8,10 +7,9 @@ export async function GET(request: NextRequest) {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const userService = new UserService(supabase);
-        const requesterProfile = await userService.getMe(user.id);
+        const role = user.user_metadata?.role;
 
-        if (requesterProfile.role !== 'admin') {
+        if (role !== 'admin') {
             return NextResponse.json(
                 { error: 'Forbidden: Hanya admin yang dapat mengakses audit logs' },
                 { status: 403 }

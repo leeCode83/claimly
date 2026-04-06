@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
+import { encryptNoteInBrowser } from "@/lib/crypto/browser-crypto";
 
 /**
  * Hook to handle medical records operations.
@@ -15,9 +16,10 @@ export const useMedicalRecords = (token?: string | null) => {
      * Helper to create request headers including the bearer token if available.
      */
     const getHeaders = (isJson: boolean = true) => {
-        const headers: Record<string, string> = {};
+        const headers: Record<string, string> = {
+            "Authorization": `Bearer ${token}`
+        };
         if (isJson) headers["Content-Type"] = "application/json";
-        if (token) headers["Authorization"] = `Bearer ${token}`;
         return headers;
     };
 
@@ -34,7 +36,9 @@ export const useMedicalRecords = (token?: string | null) => {
             if (params?.limit) url.searchParams.append("limit", params.limit.toString());
 
             const response = await fetch(url.toString(), {
-                headers: getHeaders(false),
+                headers: {
+                    ...getHeaders(false),
+                },
             });
             const result = await response.json();
 
@@ -78,15 +82,29 @@ export const useMedicalRecords = (token?: string | null) => {
 
     /**
      * Create a new medical record (restricted to hospital_staff).
-     * @param payload Medical record data (including patient_id, diagnosis_id, diagnosis_date, etc.)
+     * @param payload Medical record data 
+     * @param patientPublicKey Patient's public key for encryption
      */
-    const createMedicalRecord = async (payload: any) => {
+    const createMedicalRecord = async (payload: any, patientPublicKey?: string) => {
         setIsLoading(true);
         try {
+            const { notes, ...rest } = payload;
+            let notes_encrypted = null;
+
+            if (notes && notes.trim() !== "") {
+                if (!patientPublicKey) {
+                    throw new Error("Public key pasien diperlukan untuk enkripsi catatan medis.");
+                }
+                notes_encrypted = await encryptNoteInBrowser(patientPublicKey, notes);
+            }
+
             const response = await fetch("/api/medical-records", {
                 method: "POST",
                 headers: getHeaders(true),
-                body: JSON.stringify(payload),
+                body: JSON.stringify({
+                    ...rest,
+                    notes_encrypted
+                }),
             });
 
             const result = await response.json();
@@ -98,11 +116,12 @@ export const useMedicalRecords = (token?: string | null) => {
             }
 
             toast.success("Rekam Medis Berhasil Ditambahkan", {
-                description: "Data rekam medis telah tersimpan dan siap untuk diajukan klaim.",
+                description: "Data rekam medis telah tersimpan secara aman dengan enkripsi E2EE.",
             });
 
             return result.data;
         } catch (error: any) {
+            console.error("[useMedicalRecords.createMedicalRecord] Error:", error.message);
             throw error;
         } finally {
             setIsLoading(false);
@@ -113,14 +132,32 @@ export const useMedicalRecords = (token?: string | null) => {
      * Update an existing medical record.
      * @param id Medical Record UUID
      * @param payload Updated data (typically notes)
+     * @param patientPublicKey Patient's public key for encryption
      */
-    const updateMedicalRecord = async (id: string, payload: any) => {
+    const updateMedicalRecord = async (id: string, payload: any, patientPublicKey?: string) => {
         setIsLoading(true);
         try {
+            const { notes, ...rest } = payload;
+            let notes_encrypted = undefined;
+
+            if (notes !== undefined) {
+                if (notes && notes.trim() !== "") {
+                    if (!patientPublicKey) {
+                        throw new Error("Public key pasien diperlukan untuk enkripsi catatan medis.");
+                    }
+                    notes_encrypted = await encryptNoteInBrowser(patientPublicKey, notes);
+                } else {
+                    notes_encrypted = null;
+                }
+            }
+
             const response = await fetch(`/api/medical-records/${id}`, {
                 method: "PUT",
                 headers: getHeaders(true),
-                body: JSON.stringify(payload),
+                body: JSON.stringify({
+                    ...rest,
+                    notes_encrypted
+                }),
             });
 
             const result = await response.json();
@@ -132,11 +169,12 @@ export const useMedicalRecords = (token?: string | null) => {
             }
 
             toast.success("Rekam Medis Diperbarui", {
-                description: "Catatan rekam medis telah berhasil diperbarui.",
+                description: "Catatan rekam medis telah berhasil diperbarui dengan enkripsi baru.",
             });
 
             return result.data;
         } catch (error: any) {
+            console.error("[useMedicalRecords.updateMedicalRecord] Error:", error.message);
             throw error;
         } finally {
             setIsLoading(false);

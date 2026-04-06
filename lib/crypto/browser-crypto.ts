@@ -22,6 +22,18 @@ function bufferToBase64(buffer: ArrayBuffer): string {
 }
 
 /**
+ * Base64 to ArrayBuffer helper
+ */
+function base64ToBuffer(base64: string): ArrayBuffer {
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+}
+
+/**
  * Generate ECDH P-256 keypair, derive master key from password, 
  * and wrap the private key.
  * 
@@ -61,23 +73,22 @@ export async function generateUserKeypairInBrowser(password: string): Promise<Br
     const masterKey = await subtle.deriveKey(
         {
             name: "PBKDF2",
-            salt: salt.buffer, // Use .buffer
+            salt: salt.buffer, 
             iterations: PBKDF2_ITERATIONS,
             hash: "SHA-256",
         },
         passwordKey,
         { name: "AES-GCM", length: 256 },
         false,
-        ["encrypt"]
+        ["encrypt", "decrypt"] // Added decrypt for unwrapping later
     );
 
     // 5. Encrypt (Wrap) the Private Key with AES-256-GCM
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ivB64 = bufferToBase64(iv.buffer); // Use .buffer
+    const ivB64 = bufferToBase64(iv.buffer); 
 
-    // AES-GCM in Web Crypto includes the auth tag at the end of the ciphertext by default
     const encryptedPrivKeyBuffer = await subtle.encrypt(
-        { name: "AES-GCM", iv: iv.buffer }, // Use .buffer
+        { name: "AES-GCM", iv: iv.buffer }, 
         masterKey,
         privateKeyBuffer
     );
@@ -89,4 +100,158 @@ export async function generateUserKeypairInBrowser(password: string): Promise<Br
         saltB64,
         ivB64,
     };
+}
+
+/**
+ * Encrypt medical notes using ECIES in the browser.
+ * 
+ * @param patientPublicKeyB64 Patient's public key (Base64 SPKI)
+ * @param plaintext Notes to encrypt
+ * @returns JSON string containing ephemeral public key, IV, and ciphertext
+ */
+export async function encryptNoteInBrowser(patientPublicKeyB64: string, plaintext: string): Promise<string> {
+    const crypto = window.crypto;
+    const subtle = crypto.subtle;
+
+    // 1. Import patient's public key
+    const patientPubKey = await subtle.importKey(
+        "spki",
+        base64ToBuffer(patientPublicKeyB64),
+        { name: "ECDH", namedCurve: "P-256" },
+        true,
+        []
+    );
+
+    // 2. Generate ephemeral keypair
+    const ephemeralKeypair = await subtle.generateKey(
+        { name: "ECDH", namedCurve: "P-256" },
+        true,
+        ["deriveKey", "deriveBits"]
+    );
+
+    // 3. Derive Shared Secret using ECDH
+    const sharedSecret = await subtle.deriveBits(
+        { name: "ECDH", public: patientPubKey },
+        ephemeralKeypair.privateKey,
+        256
+    );
+
+    // 4. Derive AES Key from shared secret (using simple SHA-256 hash as per server implementation)
+    const aesKeyBuffer = await subtle.digest("SHA-256", sharedSecret);
+    const aesKey = await subtle.importKey(
+        "raw",
+        aesKeyBuffer,
+        { name: "AES-GCM" },
+        false,
+        ["encrypt"]
+    );
+
+    // 5. Encrypt with AES-GCM
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoder = new TextEncoder();
+    const ciphertextBuffer = await subtle.encrypt(
+        { name: "AES-GCM", iv: iv.buffer },
+        aesKey,
+        encoder.encode(plaintext)
+    );
+
+    // 6. Export Ephemeral Public Key
+    const epkBuffer = await subtle.exportKey("spki", ephemeralKeypair.publicKey);
+
+    return JSON.stringify({
+        epk: bufferToBase64(epkBuffer),
+        iv: bufferToBase64(iv.buffer),
+        // Web Crypto API includes the auth tag at the end of the encrypted buffer for AES-GCM
+        ct: bufferToBase64(ciphertextBuffer),
+    });
+}
+
+/**
+ * Decrypt medical notes in the browser.
+ */
+export async function decryptNoteInBrowser(
+    encryptedPrivKeyB64: string,
+    saltB64: string,
+    ivB64: string,
+    password: string,
+    encryptedNoteJson: string
+): Promise<string> {
+    const crypto = window.crypto;
+    const subtle = crypto.subtle;
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+
+    // 1. Derive Patient's Private Key from password
+    const passwordKey = await subtle.importKey(
+        "raw",
+        encoder.encode(password),
+        { name: "PBKDF2" },
+        false,
+        ["deriveKey"]
+    );
+
+    const masterKey = await subtle.deriveKey(
+        {
+            name: "PBKDF2",
+            salt: base64ToBuffer(saltB64),
+            iterations: PBKDF2_ITERATIONS,
+            hash: "SHA-256",
+        },
+        passwordKey,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["decrypt"]
+    );
+
+    const privateKeyPKCS8 = await subtle.decrypt(
+        { name: "AES-GCM", iv: base64ToBuffer(ivB64) },
+        masterKey,
+        base64ToBuffer(encryptedPrivKeyB64)
+    );
+
+    const patientPrivKey = await subtle.importKey(
+        "pkcs8",
+        privateKeyPKCS8,
+        { name: "ECDH", namedCurve: "P-256" },
+        true,
+        ["deriveBits"]
+    );
+
+    // 2. Parse encrypted note
+    const { epk, iv, ct } = JSON.parse(encryptedNoteJson);
+
+    // 3. Import Ephemeral Public Key
+    const ephemeralPubKey = await subtle.importKey(
+        "spki",
+        base64ToBuffer(epk),
+        { name: "ECDH", namedCurve: "P-256" },
+        true,
+        []
+    );
+
+    // 4. Derive Shared Secret
+    const sharedSecret = await subtle.deriveBits(
+        { name: "ECDH", public: ephemeralPubKey },
+        patientPrivKey,
+        256
+    );
+
+    // 5. Derive AES Key
+    const aesKeyBuffer = await subtle.digest("SHA-256", sharedSecret);
+    const aesKey = await subtle.importKey(
+        "raw",
+        aesKeyBuffer,
+        { name: "AES-GCM" },
+        false,
+        ["decrypt"]
+    );
+
+    // 6. Decrypt ciphertext
+    const plaintextBuffer = await subtle.decrypt(
+        { name: "AES-GCM", iv: base64ToBuffer(iv) },
+        aesKey,
+        base64ToBuffer(ct)
+    );
+
+    return decoder.decode(plaintextBuffer);
 }

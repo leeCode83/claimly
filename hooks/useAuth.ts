@@ -14,39 +14,31 @@ export const useAuth = () => {
     const [accessToken, setAccessToken] = useState<string | null>(null);
 
     /**
-     * Authenticate a user with email and password.
-     * @param payload { email, password }
-     * @returns The access_token if successful
+     * Authenticate a user with Keycloak OIDC.
      */
-    const signIn = async (payload: { email?: string; password?: string }) => {
+    const signIn = async () => {
         setIsLoading(true);
         try {
             const response = await fetch("/api/auth/signin", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
             });
 
             const result = await response.json();
 
             if (!response.ok) {
-                const message = result.error || "Gagal masuk. Silakan cek kembali email dan password Anda.";
-                toast.error("Sign In Gagal", {
+                const message = result.error || "Gagal mendapatkan URL Login";
+                toast.error("Otentikasi Gagal", {
                     description: message,
                 });
                 throw new Error(message);
             }
 
-            const token = result.data.session?.access_token;
-            setAccessToken(token);
-
-            toast.success("Sign In Berhasil", {
-                description: `Selamat datang kembali${result.data.user?.user_metadata?.full_name ? `, ${result.data.user.user_metadata.full_name}` : ""}!`,
-            });
-
-            return token;
+            if (result.data?.url) {
+                // Redirect user to Keycloak login page
+                window.location.href = result.data.url;
+            }
         } catch (error: any) {
-            // Error is handled in the if(!response.ok) block, but catching general network errors here
             if (error.message === "Failed to fetch") {
                 toast.error("Masalah Jaringan", {
                     description: "Tidak dapat terhubung ke server. Silakan coba lagi nanti.",
@@ -59,88 +51,100 @@ export const useAuth = () => {
     };
 
     /**
-     * Register a new user.
-     * @param payload { email, password, full_name, role, institution_id }
-     * @returns The access_token if successful
+     * Register a new user via Keycloak.
      */
-    const signUp = async (payload: {
-        email?: string;
-        password?: string;
-        full_name?: string;
-        role?: string;
-        institution_id?: string;
-    }) => {
+    const signUp = async () => {
+        // For OIDC, signup usually happens in the same IdP UI or a dedicated link.
+        // We redirect to the same Keycloak login which usually has a 'Register' link.
+        await signIn();
+    };
+
+    /**
+     * Clear the stored access_token from state and destroy session on server.
+     */
+    const signOut = async () => {
         setIsLoading(true);
         try {
-            let signupPayload: any = { ...payload };
-
-            // Zero-Knowledge Implementation:
-            // If the user is a patient, we generate the encryption keypair 
-            // and wrap the private key locally in the browser.
-            if (payload.password) {
-                toast.info("Menyiapkan kunci keamanan...", {
-                    description: "Generasi kunci enkripsi dilakukan secara lokal di perangkat Anda.",
-                });
-                
-                const bundle = await generateUserKeypairInBrowser(payload.password);
-                
-                // Add the cryptographic bundle to the payload
-                signupPayload = {
-                    ...signupPayload,
-                    p_public_key:           bundle.publicKeyB64,
-                    p_encrypted_priv_key:   bundle.encryptedPrivKeyB64,
-                    p_key_derivation_salt:  bundle.saltB64,
-                    p_key_iv:               bundle.ivB64,
-                };
-            }
-
-            const response = await fetch("/api/auth/signup", {
+            await fetch("/api/auth/signout", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(signupPayload),
+                headers: { "Content-Type": "application/json" }
             });
-
-            const result = await response.json();
-
-            if (!response.ok) {
-                const message = result.error || "Gagal mendaftar. Silakan coba lagi.";
-                toast.error("Sign Up Gagal", {
-                    description: message,
-                });
-                throw new Error(message);
-            }
-
-            const token = result.data.session?.access_token;
-            setAccessToken(token);
-
-            toast.success("Sign Up Berhasil", {
-                description: "Akun Anda telah berhasil dibuat. Silakan cek email untuk verifikasi.",
+            
+            // Clear local states
+            setAccessToken(null);
+            
+            toast.success("Berhasil Keluar", {
+                description: "Sesi Anda telah diakhiri."
             });
-
-            return token;
-        } catch (error: any) {
-            if (error.message === "Failed to fetch") {
-                toast.error("Masalah Jaringan", {
-                    description: "Tidak dapat terhubung ke server.",
-                });
-            }
-            throw error;
+            
+            // Hard redirect to the auth page (or logout endpoint will be handled by Context)
+            window.location.href = "/auth";
+        } catch (error) {
+            console.error("[useAuth.signOut] Error:", error);
         } finally {
             setIsLoading(false);
         }
     };
 
     /**
-     * Clear the stored access_token from state.
+     * Initialize ZKP cryptographic keys (Client-side generation).
+     * Used for Zero-Knowledge privacy.
      */
-    const logoutLocal = () => {
-        setAccessToken(null);
+    const initZkpKeys = async (pin: string) => {
+        if (!accessToken) {
+            toast.error("Error", { description: "Sesi pengguna tidak ditemukan" });
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            toast.info("Menyiapkan kunci keamanan...", {
+                description: "Generasi kunci enkripsi dilakukan secara lokal di perangkat Anda.",
+            });
+            
+            const bundle = await generateUserKeypairInBrowser(pin);
+            
+            const response = await fetch("/api/auth/init-zkp", {
+                method: "POST",
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${accessToken}`
+                },
+                body: JSON.stringify({
+                    p_public_key: bundle.publicKeyB64,
+                    p_encrypted_priv_key: bundle.encryptedPrivKeyB64,
+                    p_key_derivation_salt: bundle.saltB64,
+                    p_key_iv: bundle.ivB64,
+                }),
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                toast.error("Gagal Menyimpan Kunci", {
+                    description: result.error || "Terjadi kesalahan saat sinkronisasi ZKP.",
+                });
+                throw new Error(result.error);
+            }
+
+            toast.success("Kunci Keamanan Berhasil Dibuat", {
+                description: "Kunci kriptografi Anda kini telah siap digunakan.",
+            });
+
+            return result;
+        } catch (error: any) {
+            console.error("[AuthContext.initZkpKeys] Error:", error);
+            throw error;
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     return {
         signIn,
         signUp,
-        logoutLocal,
+        signOut,
+        initZkpKeys,
         isLoading,
         accessToken,
     };

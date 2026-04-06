@@ -1,15 +1,59 @@
 "use client"
 
-import { useState } from "react"
-import { UsersIcon, Building2Icon, ShieldAlertIcon, PlusIcon, SearchIcon, ActivityIcon } from "lucide-react"
+import { useState, useEffect } from "react"
+import { UsersIcon, Building2Icon, ShieldAlertIcon, PlusIcon, SearchIcon, ActivityIcon, EyeIcon } from "lucide-react"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { useInstitutions } from "@/hooks/useInstitutions"
 
 export default function AdminDashboard() {
+  const { getInstitutions, getInstitution, isLoading } = useInstitutions()
+  
+  const [institutions, setInstitutions] = useState<any[]>([])
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  
+  const [selectedInstitution, setSelectedInstitution] = useState<any>(null)
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
+  const [isDetailLoading, setIsDetailLoading] = useState(false)
+
+  const limit = 5
+
+  useEffect(() => {
+    fetchInstitutions(page)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page])
+
+  const fetchInstitutions = async (currentPage: number) => {
+    try {
+      const res = await getInstitutions({ page: currentPage, limit })
+      setInstitutions(res.data || [])
+      setTotalPages(res.pagination?.total_pages || 1)
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  const handleOpenDetail = async (id: string) => {
+    setIsDetailModalOpen(true)
+    setIsDetailLoading(true)
+    setSelectedInstitution(null)
+    try {
+      const inst = await getInstitution(id)
+      setSelectedInstitution(inst)
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setIsDetailLoading(false)
+    }
+  }
+
   return (
     <div className="container mx-auto py-8 px-4 space-y-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -125,19 +169,62 @@ export default function AdminDashboard() {
                   <TableRow>
                     <TableHead>Nama Institusi</TableHead>
                     <TableHead>Tipe</TableHead>
+                    <TableHead className="text-right">Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow>
-                    <TableCell className="font-medium">RS Medika Jakarta</TableCell>
-                    <TableCell>Hospital</TableCell>
-                  </TableRow>
-                   <TableRow>
-                    <TableCell className="font-medium">BPJS Kesehatan</TableCell>
-                    <TableCell>Insurance</TableCell>
-                  </TableRow>
+                  {isLoading ? (
+                    Array.from({ length: 3 }).map((_, i) => (
+                      <TableRow key={i}>
+                        <TableCell><Skeleton className="h-4 w-[200px]" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
+                        <TableCell className="text-right"><Skeleton className="h-8 w-16 ml-auto" /></TableCell>
+                      </TableRow>
+                    ))
+                  ) : institutions && institutions.length > 0 ? (
+                    institutions.map((inst) => (
+                      <TableRow key={inst.id}>
+                        <TableCell className="font-medium">{inst.name}</TableCell>
+                        <TableCell className="capitalize">{inst.type}</TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="outline" size="sm" onClick={() => handleOpenDetail(inst.id)}>
+                            <EyeIcon className="size-4 mr-1" />
+                            Detail
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-center py-4 text-muted-foreground">
+                        Belum ada data institusi.
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
+              
+              {totalPages > 1 && (
+                <div className="flex items-center justify-end space-x-2 py-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
+                    disabled={page === 1 || isLoading}
+                  >
+                    Previous
+                  </Button>
+                  <div className="text-sm">Halaman {page} dari {totalPages}</div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))}
+                    disabled={page === totalPages || isLoading}
+                  >
+                    Next
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -158,6 +245,47 @@ export default function AdminDashboard() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={isDetailModalOpen} onOpenChange={setIsDetailModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Detail Institusi</DialogTitle>
+            <DialogDescription>
+              Informasi lengkap terkait institusi yang dipilih.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {isDetailLoading ? (
+               <div className="space-y-3">
+                 <Skeleton className="h-4 w-full" />
+                 <Skeleton className="h-4 w-3/4" />
+                 <Skeleton className="h-4 w-1/2" />
+               </div>
+            ) : selectedInstitution ? (
+               <div className="grid gap-2 text-sm">
+                 <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2">
+                   <div className="font-semibold text-muted-foreground">ID Institusi</div>
+                   <div className="col-span-2 font-mono text-xs break-all">{selectedInstitution.id}</div>
+                 </div>
+                 <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2">
+                   <div className="font-semibold text-muted-foreground">Nama</div>
+                   <div className="col-span-2 font-medium">{selectedInstitution.name}</div>
+                 </div>
+                 <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2">
+                   <div className="font-semibold text-muted-foreground">Tipe</div>
+                   <div className="col-span-2 capitalize">{selectedInstitution.type}</div>
+                 </div>
+                 <div className="grid grid-cols-3 gap-4 pb-2 pt-2">
+                   <div className="font-semibold text-muted-foreground">Dibuat Pada</div>
+                   <div className="col-span-2">{new Date(selectedInstitution.created_at).toLocaleString()}</div>
+                 </div>
+               </div>
+            ) : (
+               <div className="text-center text-muted-foreground py-4">Gagal memuat detail institusi.</div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

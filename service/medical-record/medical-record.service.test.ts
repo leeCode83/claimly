@@ -1,11 +1,5 @@
 import { MedicalRecordService } from './medical-record.service';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { encryptNoteForPatient } from '@/lib/crypto/note-crypto';
-
-// Mock crypto library
-jest.mock('@/lib/crypto/note-crypto', () => ({
-    encryptNoteForPatient: jest.fn()
-}));
 
 describe('MedicalRecordService', () => {
     let service: MedicalRecordService;
@@ -86,7 +80,7 @@ describe('MedicalRecordService', () => {
             patient_id: 'p-1',
             diagnosis_id: 'd-1',
             diagnosis_date: '2024-03-28',
-            notes: 'Test Note'
+            notes_encrypted: 'encrypted-blob-from-client'
         };
         const hospitalId = 'hosp-1';
         const doctorId = 'doc-1';
@@ -96,34 +90,28 @@ describe('MedicalRecordService', () => {
                 .rejects.toThrow('Parameter patient_id, diagnosis_id, dan diagnosis_date wajib diisi');
         });
 
-        it('encrypts notes if public key is available', async () => {
-            // Mock RPC success
-            mockSupabase.rpc.mockResolvedValueOnce({ data: 'fake-public-key', error: null });
-            // Mock crypto success
-            (encryptNoteForPatient as jest.Mock).mockReturnValueOnce('encrypted-blob');
+        it('saves notes_encrypted directly to database', async () => {
             // Mock insert success
-            const mockResult = { id: 'new-mr', notes_encrypted: 'encrypted-blob' };
+            const mockResult = { id: 'new-mr', notes_encrypted: 'encrypted-blob-from-client' };
             mockSupabase.single.mockResolvedValueOnce({ data: mockResult, error: null });
 
             const result = await service.createMedicalRecord(payload, hospitalId, doctorId);
 
-            expect(mockSupabase.rpc).toHaveBeenCalledWith('get_patient_public_key', { p_patient_id: payload.patient_id });
-            expect(encryptNoteForPatient).toHaveBeenCalledWith('fake-public-key', payload.notes);
+            // RPC should NEVER be called now (no server-side encryption)
+            expect(mockSupabase.rpc).not.toHaveBeenCalled();
             expect(mockSupabase.insert).toHaveBeenCalledWith(expect.objectContaining({
-                notes_encrypted: 'encrypted-blob',
+                notes_encrypted: 'encrypted-blob-from-client',
                 diagnosis_date_encoded: 20240328
             }));
             expect(result).toEqual(mockResult);
         });
 
-        it('saves null notes_encrypted if public key fails/missing', async () => {
-            // Mock RPC returns null (no keypair)
-            mockSupabase.rpc.mockResolvedValueOnce({ data: null, error: null });
-            mockSupabase.single.mockResolvedValueOnce({ data: { id: 'mr-no-enc' }, error: null });
+        it('saves null if notes_encrypted is not provided', async () => {
+            const payloadNoNotes = { ...payload, notes_encrypted: undefined };
+            mockSupabase.single.mockResolvedValueOnce({ data: { id: 'mr-no-notes' }, error: null });
 
-            await service.createMedicalRecord(payload, hospitalId, doctorId);
+            await service.createMedicalRecord(payloadNoNotes, hospitalId, doctorId);
 
-            expect(encryptNoteForPatient).not.toHaveBeenCalled();
             expect(mockSupabase.insert).toHaveBeenCalledWith(expect.objectContaining({
                 notes_encrypted: null
             }));
@@ -171,31 +159,26 @@ describe('MedicalRecordService', () => {
         it('throws 400 if payload invalid', async () => {
             await expect(service.updateMedicalRecord(id, {} as any))
                 .rejects.toThrow('Tidak ada field yang bisa diupdate');
-            await expect(service.updateMedicalRecord(id, { notes: undefined }))
+            await expect(service.updateMedicalRecord(id, { notes_encrypted: undefined }))
                 .rejects.toThrow('Tidak ada field yang bisa diupdate');
         });
 
-        it('updates with encrypted notes if patientId provided', async () => {
-            mockSupabase.rpc.mockResolvedValueOnce({ data: 'pub-key', error: null });
-            (encryptNoteForPatient as jest.Mock).mockReturnValueOnce('new-encrypted');
-            mockSupabase.single.mockResolvedValueOnce({ data: { id, notes_encrypted: 'new-encrypted' }, error: null });
+        it('updates with encrypted notes directly', async () => {
+            mockSupabase.single.mockResolvedValueOnce({ data: { id, notes_encrypted: 'new-encrypted-from-client' }, error: null });
 
             const result = await service.updateMedicalRecord(id, { 
-                notes: 'New text', 
-                patientId: 'p-1' 
+                notes_encrypted: 'new-encrypted-from-client'
             });
 
-            expect(encryptNoteForPatient).toHaveBeenCalledWith('pub-key', 'New text');
-            expect(mockSupabase.update).toHaveBeenCalledWith({ notes_encrypted: 'new-encrypted' });
-            expect(result.notes_encrypted).toBe('new-encrypted');
+            expect(mockSupabase.update).toHaveBeenCalledWith({ notes_encrypted: 'new-encrypted-from-client' });
+            expect(result.notes_encrypted).toBe('new-encrypted-from-client');
         });
 
-        it('clears notes if empty string provided', async () => {
+        it('clears notes if null provided', async () => {
             mockSupabase.single.mockResolvedValueOnce({ data: { id, notes_encrypted: null }, error: null });
 
             await service.updateMedicalRecord(id, { 
-                notes: '', 
-                patientId: 'p-1' 
+                notes_encrypted: null
             });
 
             expect(mockSupabase.update).toHaveBeenCalledWith({ notes_encrypted: null });
@@ -205,7 +188,7 @@ describe('MedicalRecordService', () => {
             mockSupabase.single.mockResolvedValueOnce({ data: null, error: { message: 'Update error' } });
 
             try {
-                await service.updateMedicalRecord(id, { notes: 'abc', patientId: 'p1' });
+                await service.updateMedicalRecord(id, { notes_encrypted: 'abc' });
             } catch (err: any) {
                 expect(err.message).toBe('Update error');
                 expect(err.status).toBe(400);

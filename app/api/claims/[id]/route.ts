@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
-import { UserService } from "@/service/user/user.service";
 import { ClaimService } from "@/service/claim/claim.service";
 
 export async function GET(
@@ -14,12 +13,11 @@ export async function GET(
         const params = await props.params;
         const claimId = params.id;
 
-        const userService = new UserService(supabase);
-        const requesterProfile = await userService.getMe(user.id);
+        const role = user.user_metadata?.role;
 
         // Roles yang diperbolehkan: hospital_staff, insurance_reviewer, patient
         const allowedRoles = ['hospital_staff', 'insurance_reviewer', 'patient', 'admin'];
-        if (!allowedRoles.includes(requesterProfile.role)) {
+        if (!role || !allowedRoles.includes(role)) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 

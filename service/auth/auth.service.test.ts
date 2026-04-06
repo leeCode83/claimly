@@ -147,4 +147,27 @@ describe('AuthService', () => {
              }
         });
     });
+
+    describe('signOut', () => {
+        it('returns success message on successful sign out', async () => {
+            mockSupabase.auth.signOut = jest.fn().mockResolvedValueOnce({ error: null });
+
+            const result = await service.signOut();
+
+            expect(mockSupabase.auth.signOut).toHaveBeenCalled();
+            expect(result).toEqual({ message: "Signed out successfully" });
+        });
+
+        it('throws a 400 error on sign out failure', async () => {
+            const mockError = { message: 'Sign out failed' };
+            mockSupabase.auth.signOut = jest.fn().mockResolvedValueOnce({ error: mockError });
+
+            try {
+                await service.signOut();
+            } catch (err: any) {
+                expect(err.message).toBe('Sign out failed');
+                expect(err.status).toBe(400);
+            }
+        });
+    });
 });

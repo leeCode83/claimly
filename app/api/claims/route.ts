@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
-import { UserService } from "@/service/user/user.service";
 import { ClaimService } from "@/service/claim/claim.service";
 
 export async function GET(request: NextRequest) {
@@ -26,6 +25,7 @@ export async function GET(request: NextRequest) {
 
     } catch (err) {
         const error = err as Error & { status?: number };
+        console.error('[GET Claims API Error]:', error.message, 'Status:', error.status);
         return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: error.status || 500 });
     }
 }
@@ -35,10 +35,9 @@ export async function POST(request: NextRequest) {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const userService = new UserService(supabase);
-        const requesterProfile = await userService.getMe(user.id);
+        const role = user.user_metadata?.role;
 
-        if (requesterProfile.role !== 'hospital_staff') {
+        if (role !== 'hospital_staff') {
             return NextResponse.json({ error: 'Forbidden: Hanya hospital_staff yang dapat mengajukan klaim' }, { status: 403 });
         }
 
@@ -54,6 +53,7 @@ export async function POST(request: NextRequest) {
 
     } catch (err) {
         const error = err as Error & { status?: number; claim_id?: string };
+        // console.error('[POST Claims API Error]:', error.message, 'Status:', error.status);
         const response: Record<string, string | undefined> = { error: error.message || 'Internal Server Error' };
         if (error.claim_id) response.claim_id = error.claim_id;
         return NextResponse.json(response, { status: error.status || 500 });

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
-import { UserService } from "@/service/user/user.service";
 import { ClaimService } from "@/service/claim/claim.service";
 
 export async function PATCH(
@@ -11,10 +10,9 @@ export async function PATCH(
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const userService = new UserService(supabase);
-        const requesterProfile = await userService.getMe(user.id);
+        const role = user.user_metadata?.role;
 
-        if (requesterProfile.role !== 'insurance_reviewer') {
+        if (role !== 'insurance_reviewer') {
             return NextResponse.json({ error: 'Forbidden: Hanya insurance_reviewer yang dapat menyetujui klaim' }, { status: 403 });
         }
 

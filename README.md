@@ -6,6 +6,95 @@ Tujuan utama Claimly adalah menggunakan teknologi kriptografi mutakhir untuk mem
 
 ---
 
+## 🏗️ Arsitektur Sistem & Alur Pengguna
+
+Sistem Claimly terdiri dari modul Next.js utama untuk manajemen dan verifikasi, serta modul Chatbot RAG terpisah untuk asisten medis pintar.
+
+```mermaid
+---
+config:
+  theme: base
+  themeVariables:
+    primaryColor: '#e3f2fd'
+    primaryTextColor: '#000'
+    primaryBorderColor: '#1976d2'
+    lineColor: '#424242'
+    secondaryColor: '#f3e5f5'
+    tertiaryColor: '#e8f5e9'
+    noteBkgColor: '#fff3e0'
+    noteTextColor: '#000'
+  layout: dagre
+---
+flowchart TB
+ subgraph Client["🖥️ Client Layer"]
+    direction LR
+        User["👤 User/Patient/<br>Hospital Staff"]
+        Browser["📱 Next.js<br>Web App"]
+        ZKPClient["🔐 ZKP Circuit/<br>snarkjs"]
+  end
+ subgraph Chatbot["🤖 Chatbot"]
+    direction TB
+        FastAPI["⚡ FastAPI<br>Service"]
+        Worker["🔄 ARQ<br>Worker"]
+        Gemini["✨ Gemini<br>Pro"]
+  end
+ subgraph MainApp["⚙️ Main"]
+    direction TB
+        NextJS["🔷 Next.js<br>Router"]
+        ZKPVerify["✅ ZKP<br>Verifier"]
+        Identity["🔑 Identity &amp;<br>Key Svc"]
+  end
+ subgraph Applications["Application Layers"]
+    direction LR
+        Chatbot
+        MainApp
+  end
+ subgraph Infra["💾 Infrastructure & Data"]
+    direction LR
+        SupabaseAuth["🔐 Supabase<br>Auth"]
+        Redis["⚡ Redis<br>Queue"]
+        SupabasePostgres["🗄️ PostgreSQL"]
+        SupabaseVector["📊 Vector<br>Store"]
+  end
+    User -- 1️⃣ Login --> Browser
+    Browser -- 8️⃣ WebSocket --> FastAPI
+    Browser <-- 3️⃣ CRUD --> NextJS
+    Browser -- 5️⃣ Generate --> ZKPClient
+    ZKPClient -- 6️⃣ Submit --> NextJS
+    Browser <-- 2️⃣ Auth --> SupabaseAuth
+    NextJS <-- 4️⃣ Data --> SupabasePostgres
+    NextJS -- 7️⃣ Verify --> ZKPVerify
+    ZKPVerify -. Key .-> Identity
+    FastAPI -- 9️⃣ Enqueue --> Redis
+    Redis -- 🔟 Job --> Worker
+    Worker -- 1️⃣1️⃣ Fetch --> Identity
+    Worker -- 1️⃣2️⃣ Search --> SupabaseVector
+    Worker <-- 1️⃣3️⃣ LLM --> Gemini
+    Worker -- 1️⃣4️⃣ Pub --> Redis
+    Redis -- 1️⃣5️⃣ Sub --> FastAPI
+    FastAPI -- 1️⃣6️⃣ Render --> Browser
+
+     User:::clientStyle
+     Browser:::clientStyle
+     ZKPClient:::clientStyle
+     FastAPI:::chatbotStyle
+     Worker:::chatbotStyle
+     Gemini:::chatbotStyle
+     NextJS:::mainAppStyle
+     ZKPVerify:::mainAppStyle
+     Identity:::mainAppStyle
+     SupabaseAuth:::infraStyle
+     Redis:::infraStyle
+     SupabasePostgres:::infraStyle
+     SupabaseVector:::infraStyle
+    classDef clientStyle fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef mainAppStyle fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef chatbotStyle fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef infraStyle fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#000
+```
+
+---
+
 ## 1. Deskripsi Projek
 
 Claimly menggunakan **Zero-Knowledge Proof (ZKP)** (diimplementasikan dengan Circom dan snarkjs) secara off-chain untuk membuktikan bahwa sebuah proses medis yang dijalani pasien memenuhi syarat polis asuransinya. 
@@ -17,6 +106,28 @@ Alur utama dalam sistem ini adalah:
 4. Pihak Asuransi memverifikasi proof tersebut dan memutuskan untuk menyetujui (approve) atau menolak (reject) klaim.
 
 Proses ini memastikan bahwa asuransi tidak akan pernah melihat detail diagnosis pasien, tanggal diagnosis, maupun detail rahasia lainnya.
+
+---
+
+## 🤖 Claimly RAG Chatbot Service
+
+Untuk meningkatkan pengalaman pengguna, kami menyediakan layanan chatbot medis asinkron yang mampu memberikan wawasan dari rekam medis terenkripsi tanpa mengorbankan privasi.
+
+*   **Repository**: [claimly-rag-chatbot](https://github.com/leeCode83/claimly-rag-chatbot)
+*   **Keunggulan**: Memproses data rekam medis secara "Zero-Persistence" (hanya ada di memori saat diproses).
+*   **Keamanan**: Dekripsi on-the-fly di RAM menggunakan ECIES dan AES-GCM.
+
+### Cara Menjalankan Chatbot (Quick Start):
+1.  Buka terminal di folder `claimly-rag-chatbot`.
+2.  Jalankan 4 background workers:
+    ```powershell
+    .\run_workers.ps1
+    ```
+3.  Jalankan FastAPI API:
+    ```powershell
+    .\run_api.ps1
+    ```
+    *Layanan akan tersedia di port 8000 via WebSocket.*
 
 ---
 
@@ -39,17 +150,24 @@ Saat ini, proses klaim asuransi kesehatan di Indonesia mengharuskan pihak rumah 
 * **Dashboard Klaim untuk Asuransi:** Mengelola tumpukan klaim masuk dengan data publik (prosedur, nominal) dan memverifikasi kriptografi integritas klaim.
 * **Notifikasi Status Klaim (Pasien):** Portal sederhana bagi pasien untuk memantau status persetujuan klaim mereka.
 * **Audit Trail/Logs Log:** Semua aktivitas kritis (submit klaim, proof generation, approval) tercatat permanen dan tidak dapat dihapus.
+* **AI Medical Assistant (RAG Chatbot):** Tanya jawab seputar rekam medis dengan konteks medis akurat menggunakan Google Gemini Pro.
 
 ---
 
 ## 4. Tech Stack yang Digunakan
 
-* **Frontend:** Next.js 14 (App Router) difokuskan pada fungsionalitas dan pemisahan rendering (*Server Components* & *Client Components*).
-* **Backend:** Next.js API Routes / Route Handlers.
-* **Database & BaaS:** Supabase — PostgreSQL, Supabase Auth (Manajemen sesi), Supabase Storage, Row-Level Security (RLS) untuk perlindungan data, RPC, dan Triggers.
-* **Zero-Knowledge Proof (ZKP):** Circom untuk merancang sirkuit ZK, snarkjs untuk generation & verification secara *runtime*, serta circomlib (Poseidon hash & MerkleProof).
-* **State Management:** Zustand (untuk mengelola state UI dan *session* di frontend).
-* **Testing:** Vitest (untuk service layer API dan logic ZKP) & Supertest.
+### Core Web & Management
+* **Frontend/Backend:** Next.js 14 (App Router).
+* **Identity & Management:** Next.js Server Actions & Identity API.
+* **BaaS:** Supabase (Auth, PostgreSQL, Storage).
+* **Zero-Knowledge Proof (ZKP):** Circom & snarkjs (Poseidon Hash, Merkle Proof).
+
+### AI & Chatbot Service
+* **API Service:** FastAPI (Python) dengan Winloop (IOCP) untuk optimasi Windows.
+* **Background Worker:** ARQ (Redis based job queue).
+* **LLM Engine:** Google Gemini Pro API.
+* **Vector Store:** Supabase Vector (pgvector).
+* **Message Broker:** Redis (Queue & Pub/Sub for real-time streaming).
 
 ---
 
@@ -94,3 +212,44 @@ Penerapan ZKP dalam Claimly memberikan keuntungan bagi seluruh pihak yang terlib
 | **Penyakit Penyerta** | Terbuka di rekam medis | Terproteksi (Hanya data klaim yang di-proof) |
 | **Status Verifikasi** | Manual (Human Reviewer) | Otomatis (Matematis/Kriptografis) |
 | **Keamanan Data** | Berisiko tinggi bocor/disalahgunakan | Privasi terjamin secara infrastruktur |
+
+---
+
+## 9. Detail Database & Keamanan (Supabase)
+
+Bagian ini merinci struktur database yang digunakan untuk mendukung sistem klaim berbasis privasi.
+
+### 📂 Daftar Tabel
+Terdapat total **13 tabel** utama di dalam schema `public`:
+`audit_logs`, `claims`, `diagnoses`, `institutions`, `insurance_policies`, `medical_records`, `patient_policies`, `patients`, `policy_covered_diagnoses`, `policy_covered_procedures`, `procedures`, `users`, `zkp_proofs`.
+
+### ⚡ Remote Procedure Calls (RPC) / PostgreSQL Functions
+Berikut adalah fungsi-fungsi khusus yang dapat dipanggil dari client untuk menjalankan logika database yang kompleks:
+
+| Nama Fungsi | Argumen | Deskripsi / Fungsi |
+| :--- | :--- | :--- |
+| `approve_claim` | `p_claim_id`, `p_reviewer_id`, `p_review_notes` | Menyetujui klaim yang masuk dan mencatat reviewer serta catatannya. |
+| `reject_claim` | `p_claim_id`, `p_reviewer_id`, `p_review_notes` | Menolak klaim yang masuk dengan alasan tertentu. |
+| `get_claims_paginated` | `p_page`, `p_limit`, `p_sort_by`, `p_sort_dir`, `p_status`, `p_search` | Mengambil data klaim dengan filter, sorting, dan pagination yang efisien. |
+| `get_my_crypto_data` | - | Mengambil data keypair terenkripsi milik user yang sedang login (untuk proses dekripsi di browser). |
+| `get_patient_public_key` | `p_patient_id` | Mengambil public key pasien (hanya bisa diakses oleh RS yang menangani pasien tersebut). |
+| `save_user_keypair` | `p_public_key`, `p_encrypted_priv_key`, `p_salt`, `p_iv` | Menyimpan pasangan kunci kriptografi baru saat user pertama kali aktivasi. |
+| `update_user_keypair` | `p_encrypted_priv_key`, `p_salt`, `p_iv` | Memperbarui kunci privat terenkripsi saat user mengganti password. |
+| `create_policy_with_relations`| `ins_id`, `name`, `amount`, `valid_from`, `valid_until`, `diag_root`, `proc_root`, `active`, `diagnoses`, `procedures` | Fungsi transaksional untuk membuat polis asuransi beserta daftar panjang diagnosa/prosedur sekaligus. |
+| `get_user_role` | - | Mengambil string role user (`patient`, `hospital_staff`, dll) dari session aktif. |
+| `get_user_institution_id` | - | Mengambil UUID institusi tempat user bekerja/terdaftar. |
+
+### 🔒 Kebijakan Row Level Security (RLS)
+RLS memastikan bahwa data hanya dapat diakses oleh pihak yang berwenang berdasarkan role dan hubungan institusional.
+
+| Tabel | Kebijakan (Policies) | Penjelasan Detail |
+| :--- | :--- | :--- |
+| **`claims`** | `claims_read`, `claims_insert`, `claims_update` | Staf RS hanya bisa akses klaim institusinya; Reviewer asuransi hanya melihat klaim `submitted/approved/rejected`; Pasien hanya melihat klaim miliknya. |
+| **`medical_records`** | `medical_records_read`, `medical_records_insert`, `medical_records_update` | Akses terbatas hanya untuk Staf RS asal rekam medis, Pasien pemilik data, dan Admin. Reviewer asuransi **TIDAK** punya akses baca ke tabel ini. |
+| **`patients`** | `patients_read`, `patients_insert`, `patients_update` | Data pasien hanya bisa dilihat oleh RS yang mendaftarkan atau menangani pasien tersebut, serta pasien itu sendiri. |
+| **`users`** | `users_read_all`, `users_update_own` | Semua user bisa melihat data publik user lain (seperti `public_key`), tapi hanya bisa mengubah data profil miliknya sendiri. |
+| **`insurance_policies`**| `read`, `insert`, `update`, `delete` | Bisa dibaca oleh siapa saja (publik katalog), namun hanya Reviewer Asuransi & Admin yang bisa menambah/mengubah data. |
+| **`patient_policies`** | `read`, `write` | Pasien bisa melihat polisnya; RS bisa mendaftarkan polis pasien; Admin & Reviewer bisa melihat semua distribusi polis. |
+| **`zkp_proofs`** | `read`, `insert`, `update` | Hanya pihak teknis RS dan Reviewer yang bisa berinteraksi dengan bukti kriptografi klaim. |
+| **`audit_logs`** | `audit_logs_read` | Log hanya bisa dilihat oleh Admin, pemilik log, atau staff dari institusi yang sama dengan pelaku aksi. |
+| **`diagnoses`/`procedures`**| `read`, `write` | Terbuka untuk dibaca oleh semua (referensi standar), namun hanya Admin yang bisa mengubah data masternya. |

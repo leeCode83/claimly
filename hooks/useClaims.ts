@@ -2,6 +2,10 @@
 
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
+import { generateProof } from "@/service/zkp";
+import { supabaseBrowser } from "@/lib/supabase-browser";
+
+export type ZkpStatus = 'idle' | 'preparing' | 'generating' | 'submitting' | 'verifying' | 'success' | 'error';
 
 /**
  * Hook to handle claims operations.
@@ -11,6 +15,8 @@ import { toast } from "sonner";
  */
 export const useClaims = (token?: string | null) => {
     const [isLoading, setIsLoading] = useState(false);
+    const [zkpStatus, setZkpStatus] = useState<ZkpStatus>('idle');
+    const [zkpError, setZkpError] = useState<string | null>(null);
 
     /**
      * Helper to create request headers including the bearer token if available.
@@ -161,6 +167,169 @@ export const useClaims = (token?: string | null) => {
     };
 
     /**
+     * Orchestrates the ZKP claim submission: Prepare -> Generate Proof -> Submit.
+     * @param payload Basic claim data
+     */
+    const submitClaimWithZkp = async (payload: {
+        patient_policy_id: string;
+        medical_record_id: string;
+        procedure_id: string;
+        procedure_date: string;
+        claim_amount: number;
+    }) => {
+        setIsLoading(true);
+        setZkpStatus('idle');
+        setZkpError(null);
+        
+        try {
+            // Phase 1: Prepare (Fetch Merkle paths & Signed URLs)
+            setZkpStatus('preparing');
+            const prepParams = new URLSearchParams({
+                patient_policy_id: payload.patient_policy_id,
+                medical_record_id: payload.medical_record_id,
+                procedure_id: payload.procedure_id,
+                procedure_date: payload.procedure_date,
+                claim_amount: payload.claim_amount.toString(),
+            });
+            
+            const prepResponse = await fetch(`/api/claims/prepare?${prepParams.toString()}`, {
+                headers: getHeaders(false),
+            });
+            const prepResult = await prepResponse.json();
+            
+            if (!prepResponse.ok) {
+                throw new Error(prepResult.error || "Gagal menyiapkan data ZKP");
+            }
+            
+            const prepData = prepResult.data;
+            
+            // Phase 2: Generate Proof (Client-side heavy computation)
+            setZkpStatus('generating');
+            const { proof, publicSignals } = await generateProof(prepData);
+            
+            // Phase 3: Submit (Post claim + proof to server)
+            setZkpStatus('submitting');
+            const submitResponse = await fetch("/api/claims", {
+                method: "POST",
+                headers: getHeaders(true),
+                body: JSON.stringify({
+                    ...payload,
+                    proof,
+                    public_signals: publicSignals
+                }),
+            });
+            
+            const submitResult = await submitResponse.json();
+            
+            if (!submitResponse.ok) {
+                throw new Error(submitResult.error || "Gagal mengirimkan klaim");
+            }
+            
+            const claimId = submitResult.data.id;
+
+            // Phase 4: Wait for Asynchronous Verification (Realtime)
+            setZkpStatus('verifying');
+            
+            return new Promise((resolve, reject) => {
+                // 1. "Check then Subscribe" - Cek apakah sudah selesai (race condition prevention)
+                const checkStatus = async () => {
+                    try {
+                        const { data: claim, error } = await supabaseBrowser
+                            .from('claims')
+                            .select('status, review_notes')
+                            .eq('id', claimId)
+                            .single();
+                        
+                        if (error) throw error;
+
+                        if (claim.status === 'approved' || claim.status === 'rejected') {
+                            setFinalStatus(claim.status, claim.review_notes);
+                            resolve(submitResult);
+                            return true;
+                        }
+                        return false;
+                    } catch (err) {
+                        console.error("Error initial status check:", err);
+                        return false;
+                    }
+                };
+
+                const setFinalStatus = (status: string, notes?: string) => {
+                    if (status === 'approved') {
+                        setZkpStatus('success');
+                        toast.success("Verifikasi Berhasil", { 
+                            description: "Klaim Anda telah diverifikasi secara otomatis oleh sistem dan disetujui." 
+                        });
+                    } else {
+                        setZkpStatus('error');
+                        setZkpError(notes || "Verifikasi gagal.");
+                        toast.error("Verifikasi Gagal", { 
+                            description: notes || "Bukti ZKP tidak valid atau tidak sesuai dengan kebijakan." 
+                        });
+                    }
+                };
+
+                // Jalankan pengecekan pertama
+                checkStatus().then(isDone => {
+                    if (isDone) return;
+
+                    // 2. Jika belum selesai, baru subscribe ke Realtime
+                    const channel = supabaseBrowser
+                        .channel(`claim-status-${claimId}`)
+                        .on(
+                            'postgres_changes',
+                            {
+                                event: 'UPDATE',
+                                schema: 'public',
+                                table: 'claims',
+                                filter: `id=eq.${claimId}`,
+                            },
+                            (payload) => {
+                                const newStatus = payload.new.status;
+                                const notes = payload.new.review_notes;
+
+                                if (newStatus === 'approved' || newStatus === 'rejected') {
+                                    setFinalStatus(newStatus, notes);
+                                    supabaseBrowser.removeChannel(channel);
+                                    resolve(submitResult);
+                                }
+                            }
+                        )
+                        .subscribe((status: string) => {
+                            if (status !== 'SUBSCRIBED') {
+                                // Fallback: Smart Polling jika Realtime gagal atau tidak bisa subscribe
+                                console.warn("Realtime subscription failed, falling back to polling...");
+                                const interval = setInterval(async () => {
+                                    const done = await checkStatus();
+                                    if (done) clearInterval(interval);
+                                }, 3000);
+                            }
+                        });
+
+                    // Timeout safety: Jika verifikasi > 60 detik
+                    setTimeout(() => {
+                        supabaseBrowser.removeChannel(channel);
+                        if (zkpStatus === 'verifying') {
+                            setZkpStatus('error');
+                            setZkpError("Timeout: Verifikasi memakan waktu terlalu lama. Silakan cek daftar klaim nanti.");
+                            reject(new Error("Verification timeout"));
+                        }
+                    }, 60000);
+                });
+            });
+            
+        } catch (error: any) {
+            console.error("[useClaims.submitClaimWithZkp] Error:", error.message);
+            setZkpStatus('error');
+            setZkpError(error.message);
+            toast.error("Gagal Memproses Klaim", { description: error.message });
+            throw error;
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    /**
      * Reject a pending claim (for insurance_reviewer).
      * @param id Claim UUID
      * @param reviewNotes Review notes (required for rejection)
@@ -196,9 +365,12 @@ export const useClaims = (token?: string | null) => {
 
     return {
         isLoading,
+        zkpStatus,
+        zkpError,
         getClaims,
         getClaimById,
         submitClaim,
+        submitClaimWithZkp,
         approveClaim,
         rejectClaim,
     };
