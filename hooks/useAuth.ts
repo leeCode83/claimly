@@ -9,9 +9,10 @@ import { generateUserKeypairInBrowser } from "@/lib/crypto/browser-crypto";
  * Hook to handle user authentication: SignIn and SignUp.
  * Uses Sonner for notifications and returns the access_token.
  */
-export const useAuth = () => {
+export const useAuth = (token?: string | null) => {
     const [isLoading, setIsLoading] = useState(false);
-    const [accessToken, setAccessToken] = useState<string | null>(null);
+    const [localToken, setLocalToken] = useState<string | null>(null);
+    const accessToken = token || localToken;
 
     /**
      * Authenticate a user with Keycloak OIDC.
@@ -71,7 +72,7 @@ export const useAuth = () => {
             });
             
             // Clear local states
-            setAccessToken(null);
+            setLocalToken(null);
             
             toast.success("Berhasil Keluar", {
                 description: "Sesi Anda telah diakhiri."

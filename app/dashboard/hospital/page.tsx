@@ -16,6 +16,8 @@ import {
 
 import { usePatients } from "@/hooks/usePatients"
 import { useInsurancePolicies } from "@/hooks/useInsurancePolicies"
+import { useMedicalRecords } from "@/hooks/useMedicalRecords"
+import { useDiagnoses } from "@/hooks/useDiagnoses"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -44,6 +46,8 @@ export default function HospitalDashboard() {
   
   const { getPatients, getPatient, registerPatient, addPatientPolicy, isLoading: isPatientOpLoading } = usePatients(accessToken)
   const { getPolicies } = useInsurancePolicies(accessToken)
+  const { getMedicalRecords, createMedicalRecord, isLoading: isMedRecLoading } = useMedicalRecords(accessToken)
+  const { getDiagnoses } = useDiagnoses(accessToken)
 
   // Insurance Policies for Select
   const [policiesData, setPoliciesData] = useState<any[]>([])
@@ -83,6 +87,17 @@ export default function HospitalDashboard() {
     claim_amount: 500000
   })
 
+  const [medicalRecords, setMedicalRecords] = useState<any[]>([])
+  const [isRecordsLoading, setIsRecordsLoading] = useState(false)
+  const [isNewRecordOpen, setIsNewRecordOpen] = useState(false)
+  const [diagnoses, setDiagnoses] = useState<any[]>([])
+  const [newRecordForm, setNewRecordForm] = useState({
+    patient_id: "",
+    diagnosis_id: "",
+    diagnosis_date: new Date().toISOString().split('T')[0],
+    notes: ""
+  })
+
   const loadPatients = async () => {
     setIsPatientLoading(true)
     try {
@@ -95,13 +110,62 @@ export default function HospitalDashboard() {
     }
   }
 
+  const loadMedicalRecords = async () => {
+    setIsRecordsLoading(true)
+    try {
+      const res = await getMedicalRecords()
+      if (res && res.data) {
+        setMedicalRecords(res.data)
+      } else {
+        setMedicalRecords(res || [])
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setIsRecordsLoading(false)
+    }
+  }
+
+  const loadDiagnosesData = async () => {
+    try {
+      const res = await getDiagnoses({ limit: 100 })
+      setDiagnoses(res.data || [])
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
   // Load patient list and policies when opening tab
   useEffect(() => {
-    if (accessToken && activeTab === "patients") {
-      loadPatients()
-      getPolicies({ limit: 100 }).then(res => setPoliciesData(res.data || [])).catch(console.error)
+    if (accessToken) {
+      if (activeTab === "patients") {
+        loadPatients()
+        getPolicies({ limit: 100 }).then(res => setPoliciesData(res.data || [])).catch(console.error)
+      } else if (activeTab === "records") {
+        loadMedicalRecords()
+        if (patients.length === 0) loadPatients()
+        loadDiagnosesData()
+      }
     }
-  }, [accessToken, activeTab, getPatients, getPolicies])
+  }, [accessToken, activeTab, getPatients, getPolicies, getMedicalRecords, getDiagnoses])
+
+  const handleCreateRecord = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+       const patient = patients.find(p => p.id === newRecordForm.patient_id)
+       const pk = patient?.users?.public_key || patient?.user?.public_key || undefined; 
+       
+       await createMedicalRecord(newRecordForm, pk)
+       setIsNewRecordOpen(false)
+       setNewRecordForm({ 
+         patient_id: "", 
+         diagnosis_id: "", 
+         diagnosis_date: new Date().toISOString().split('T')[0], 
+         notes: "" 
+       })
+       loadMedicalRecords()
+    } catch (err) { }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -491,14 +555,94 @@ export default function HospitalDashboard() {
 
         <TabsContent value="records" className="space-y-4">
           <Card>
-            <CardHeader>
-              <CardTitle>Entri Rekam Medis Terbaru</CardTitle>
-              <CardDescription>Catatan medis yang telah dienkripsi menggunakan kunci publik pasien.</CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <div className="space-y-1">
+                <CardTitle>Entri Rekam Medis Terbaru</CardTitle>
+                <CardDescription>Catatan medis yang telah dienkripsi menggunakan kunci publik pasien.</CardDescription>
+              </div>
+              <Dialog open={isNewRecordOpen} onOpenChange={setIsNewRecordOpen}>
+                <DialogTrigger asChild>
+                  <Button className="gap-2">
+                    <PlusIcon className="size-4" />
+                    Tambah Rekam Medis
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[500px]">
+                  <DialogHeader>
+                    <DialogTitle>Tambah Rekam Medis</DialogTitle>
+                    <DialogDescription>
+                      Isi data diagnosis dan prosedur pasien. Catatan (optional) akan dienkripsi secara aman.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={handleCreateRecord} className="space-y-4 pt-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="patient_id">Pilih Pasien <span className="text-destructive">*</span></Label>
+                      <select 
+                        id="patient_id"
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={newRecordForm.patient_id}
+                        onChange={(e) => setNewRecordForm({...newRecordForm, patient_id: e.target.value})}
+                        required
+                      >
+                        <option value="" disabled>Pilih Pasien...</option>
+                        {patients.map((p) => (
+                          <option key={p.id} value={p.id}>{p.full_name} ({p.nik})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="diagnosis_id">Diagnosis <span className="text-destructive">*</span></Label>
+                      <select 
+                        id="diagnosis_id"
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={newRecordForm.diagnosis_id}
+                        onChange={(e) => setNewRecordForm({...newRecordForm, diagnosis_id: e.target.value})}
+                        required
+                      >
+                        <option value="" disabled>Pilih Diagnosis...</option>
+                        {diagnoses.map((d) => (
+                          <option key={d.id} value={d.id}>{d.description} ({d.icd10_code})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="diagnosis_date">Tanggal Diagnosis <span className="text-destructive">*</span></Label>
+                      <Input 
+                        id="diagnosis_date" 
+                        type="date"
+                        value={newRecordForm.diagnosis_date}
+                        onChange={(e) => setNewRecordForm({...newRecordForm, diagnosis_date: e.target.value})}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="notes">Catatan Medis (Opsional)</Label>
+                      <textarea
+                        id="notes"
+                        className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        placeholder="Catatan tambahan..."
+                        value={newRecordForm.notes}
+                        onChange={(e) => setNewRecordForm({...newRecordForm, notes: e.target.value})}
+                      />
+                      <p className="text-xs text-muted-foreground">Catatan akan dienkripsi E2EE dengan kunci publik pasien.</p>
+                    </div>
+                    
+                    <div className="flex justify-end gap-2 pt-2">
+                      <Button type="button" variant="ghost" onClick={() => setIsNewRecordOpen(false)}>Batal</Button>
+                      <Button type="submit" disabled={isMedRecLoading}>
+                        {isMedRecLoading && <Loader2Icon className="size-4 animate-spin mr-2" />}
+                        Simpan
+                      </Button>
+                    </div>
+                  </form>
+                </DialogContent>
+              </Dialog>
             </CardHeader>
             <CardContent>
                <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>ID Rekam Medis</TableHead>
                     <TableHead>Pasien</TableHead>
                     <TableHead>Diagnosis</TableHead>
                     <TableHead>Tanggal</TableHead>
@@ -506,16 +650,40 @@ export default function HospitalDashboard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow>
-                    <TableCell>Andi Budiman</TableCell>
-                    <TableCell>Hipertensi Grade I</TableCell>
-                    <TableCell>30 Mar 2026</TableCell>
-                    <TableCell>
-                      <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
-                        Securely Encrypted
-                      </span>
-                    </TableCell>
-                  </TableRow>
+                  {isRecordsLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-6">
+                        <Loader2Icon className="size-6 animate-spin mx-auto text-primary" />
+                        <p className="mt-2 text-sm text-muted-foreground">Memuat data rekam medis...</p>
+                      </TableCell>
+                    </TableRow>
+                  ) : medicalRecords.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        Belum ada data rekam medis.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    medicalRecords.map((record) => (
+                      <TableRow key={record.id}>
+                        <TableCell className="text-xs font-mono">{record.id.substring(0,8)}...</TableCell>
+                        <TableCell className="font-medium">{record.patient?.full_name || record.patient_id.substring(0,8)}</TableCell>
+                        <TableCell>{record.diagnosis?.description || record.diagnosis_id?.substring(0,8) || "-"}</TableCell>
+                        <TableCell>{new Date(record.created_at).toLocaleDateString('id-ID')}</TableCell>
+                        <TableCell>
+                          {record.notes_encrypted ? (
+                            <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-[10px] font-medium text-green-800">
+                              Securely Encrypted
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-[10px] font-medium text-gray-800">
+                              No Notes
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
