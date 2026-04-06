@@ -16,7 +16,7 @@ export class MedicalRecordService {
         let query = this.supabase
             .from('medical_records')
             .select(
-                '*, diagnosis:diagnoses(icd10_code, description), patient:patients(id, full_name), attending_doctor:users!attending_doctor_id(id, full_name, role)',
+                '*, diagnosis:diagnoses(icd10_code, description), patient:patients(id, full_name), attending_doctor:users!attending_doctor_id(id, full_name, role), claims:claims(id, status)',
                 { count: 'exact' }
             );
 
@@ -93,7 +93,7 @@ export class MedicalRecordService {
     async getMedicalRecordById(id: string) {
         const { data, error } = await this.supabase
             .from('medical_records')
-            .select('*, diagnosis:diagnoses(icd10_code, description), patient:patients(id, full_name), attending_doctor:users!attending_doctor_id(id, full_name, role)')
+            .select('*, diagnosis:diagnoses(icd10_code, description), patient:patients(id, full_name), attending_doctor:users!attending_doctor_id(id, full_name, role), claims:claims(id, status)')
             .eq('id', id)
             .single();
 

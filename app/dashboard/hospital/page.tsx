@@ -11,7 +11,8 @@ import {
   Loader2Icon,
   CheckCircle2Icon,
   AlertCircleIcon,
-  FingerprintIcon
+  FingerprintIcon,
+  LockIcon
 } from "lucide-react"
 
 import { usePatients } from "@/hooks/usePatients"
@@ -24,7 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useAuthContext } from "@/context/AuthContext"
 import { useClaims, ZkpStatus } from "@/hooks/useClaims"
@@ -90,6 +91,8 @@ export default function HospitalDashboard() {
   const [medicalRecords, setMedicalRecords] = useState<any[]>([])
   const [isRecordsLoading, setIsRecordsLoading] = useState(false)
   const [isNewRecordOpen, setIsNewRecordOpen] = useState(false)
+  const [selectedRecord, setSelectedRecord] = useState<any | null>(null)
+  
   const [diagnoses, setDiagnoses] = useState<any[]>([])
   const [newRecordForm, setNewRecordForm] = useState({
     patient_id: "",
@@ -647,6 +650,7 @@ export default function HospitalDashboard() {
                     <TableHead>Diagnosis</TableHead>
                     <TableHead>Tanggal</TableHead>
                     <TableHead>Status Enkripsi</TableHead>
+                    <TableHead className="text-right">Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -680,6 +684,9 @@ export default function HospitalDashboard() {
                               No Notes
                             </span>
                           )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" onClick={() => setSelectedRecord(record)}>Detail</Button>
                         </TableCell>
                       </TableRow>
                     ))
@@ -831,6 +838,76 @@ export default function HospitalDashboard() {
           </Card>
         </TabsContent>
       </Tabs>
+      {/* Detail Medical Record Modal for Staff */}
+      <Dialog open={!!selectedRecord} onOpenChange={(open) => {
+        if (!open) setSelectedRecord(null);
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileTextIcon className="size-5 text-primary" />
+              Rincian Rekam Medis
+            </DialogTitle>
+            <DialogDescription>
+              Akses terbatas staf rumah sakit. Catatan medis terenkripsi E2EE.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="space-y-1">
+                  <p className="text-muted-foreground text-xs uppercase">Pasien</p>
+                  <p className="font-semibold">{selectedRecord?.patient?.full_name}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-muted-foreground text-xs uppercase">Tanggal</p>
+                  <p className="font-semibold">{selectedRecord?.diagnosis_date && new Date(selectedRecord.diagnosis_date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                </div>
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-muted-foreground text-xs uppercase">Diagnosis</p>
+              <div className="p-3 border rounded-lg bg-muted/30 font-medium">
+                {selectedRecord?.diagnosis?.description} ({selectedRecord?.diagnosis?.icd10_code})
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <LockIcon className="size-4 text-muted-foreground" />
+                Catatan Medis
+              </div>
+              <div className="p-4 border border-dashed rounded-lg bg-muted/10 text-center">
+                <p className="text-xs text-muted-foreground">
+                  Catatan dokter dienkripsi dengan kunci publik pasien. Staf tidak dapat membaca isi catatan ini demi privasi pasien.
+                </p>
+              </div>
+            </div>
+
+            {selectedRecord?.claims && selectedRecord.claims.length > 0 && (
+              <div className="space-y-2 pt-4 border-t">
+                <p className="text-xs font-semibold text-primary uppercase">Status Klaim Terkait</p>
+                {selectedRecord.claims.map((claim: any) => (
+                  <div key={claim.id} className="flex justify-between items-center p-2 border rounded bg-primary/5">
+                    <span className="text-xs font-mono">{claim.id.substring(0,8)}...</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
+                      claim.status === 'Approved' ? 'bg-green-100 text-green-800' :
+                      claim.status === 'Rejected' ? 'bg-red-100 text-red-800' :
+                      'bg-blue-100 text-blue-800'
+                    }`}>
+                      {claim.status.toUpperCase()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" className="w-full" onClick={() => setSelectedRecord(null)}>Tutup</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

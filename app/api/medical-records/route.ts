@@ -10,11 +10,12 @@ export async function GET(request: NextRequest) {
         const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
         const institution_id = (user.user_metadata?.custom_claims?.institution_id || user.user_metadata?.institution_id);
 
-        if (role !== 'hospital_staff') {
+        const allowedRoles = ['patient', 'hospital_staff'];
+        if (!role || !allowedRoles.includes(role)) {
             return NextResponse.json({ error: 'Forbidden: Hanya hospital_staff yang dapat mencari rekam medis' }, { status: 403 });
         }
 
-        if (!institution_id) {
+        if (role =='hospital_staff' && !institution_id) {
             return NextResponse.json({ error: 'Forbidden: Akun Anda belum terhubung ke institusi manapun' }, { status: 403 });
         }
 

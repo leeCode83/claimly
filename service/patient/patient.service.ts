@@ -34,7 +34,7 @@ export class PatientService {
     async getPatients({ hospitalId, page = 1, limit = 10, search = '' }: { hospitalId: string, page?: number, limit?: number, search?: string }) {
         let query = this.supabase
             .from('patients')
-            .select('*', { count: 'exact' })
+            .select('*, user:user_id(public_key)', { count: 'exact' })
             .eq('hospital_id', hospitalId);
 
         if (search) {
