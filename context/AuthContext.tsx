@@ -28,17 +28,63 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [accessToken, setAccessToken] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true) // Start as loading to prevent premature redirects
   const usersApi = useUsers(accessToken)
 
-  // Initialize from localStorage if available
+  // Initialize from Supabase Session
   useEffect(() => {
-    const storedToken = localStorage.getItem("claimly_token")
-    const storedUser = localStorage.getItem("claimly_user")
-    if (storedToken && storedUser) {
-      setAccessToken(storedToken)
-      setUser(JSON.parse(storedUser))
-    }
+    import('@supabase/ssr').then(({ createBrowserClient }) => {
+      const supabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_KEY!
+      )
+
+      const refreshSession = async () => {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session) {
+          setAccessToken(session.access_token)
+          const userObj = {
+            id: session.user.id,
+            email: session.user.email || "",
+            role: session.user.user_metadata?.custom_claims?.role || session.user.user_metadata?.role,
+            full_name: session.user.user_metadata?.name || session.user.user_metadata?.full_name || session.user.user_metadata?.custom_claims?.given_name,
+            institution_id: session.user.user_metadata?.custom_claims?.institution_id || session.user.user_metadata?.institution_id
+          }
+          setUser(userObj)
+          // Keep localStorage for backward compatibility with other frontend components
+          localStorage.setItem("claimly_token", session.access_token)
+          localStorage.setItem("claimly_user", JSON.stringify(userObj))
+        }
+        setIsLoading(false) // Finish initial loading
+      }
+
+      refreshSession()
+
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session) {
+          setAccessToken(session.access_token)
+          const userObj = {
+            id: session.user.id,
+            email: session.user.email || "",
+            role: session.user.user_metadata?.custom_claims?.role || session.user.user_metadata?.role,
+            full_name: session.user.user_metadata?.name || session.user.user_metadata?.full_name || session.user.user_metadata?.custom_claims?.given_name,
+            institution_id: session.user.user_metadata?.custom_claims?.institution_id || session.user.user_metadata?.institution_id
+          }
+          setUser(userObj)
+          localStorage.setItem("claimly_token", session.access_token)
+          localStorage.setItem("claimly_user", JSON.stringify(userObj))
+        } else {
+          setAccessToken(null)
+          setUser(null)
+          localStorage.removeItem("claimly_token")
+          localStorage.removeItem("claimly_user")
+        }
+      })
+
+      return () => {
+        subscription.unsubscribe()
+      }
+    })
   }, [])
 
   const signIn = async () => {

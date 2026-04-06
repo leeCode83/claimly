@@ -40,7 +40,7 @@ export async function GET(request: Request) {
     
     if (!error) {
       const user = data.user
-      const role = user?.user_metadata?.role
+      const role = user?.user_metadata?.custom_claims?.role || user?.user_metadata?.role
 
       console.log(`[AuthCallback] User role detected: ${role}`);
 

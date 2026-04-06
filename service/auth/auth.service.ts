@@ -13,6 +13,7 @@ export class AuthService {
             options: {
                 redirectTo: redirectTo || 'http://host.docker.internal:3000/api/auth/callback',
                 skipBrowserRedirect: true, // Return URL instead of redirecting if called from server
+                scopes: 'openid profile email', // Explicitly request OpenID scope
             }
         });
 
