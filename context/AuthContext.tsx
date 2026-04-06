@@ -19,8 +19,7 @@ interface AuthContextType {
   isLoading: boolean
   signIn: () => Promise<void>
   signUp: () => Promise<void>
-  initZkpKeys: (pin: string) => Promise<void>
-  logoutLocal: () => void
+  logoutLocal: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -162,16 +161,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const logoutLocal = () => {
-    setAccessToken(null)
-    setUser(null)
-    localStorage.removeItem("claimly_token")
-    localStorage.removeItem("claimly_user")
-    toast.success("Logged out successfully")
+  const logoutLocal = async () => {
+    setIsLoading(true);
+    try {
+        await fetch("/api/auth/signout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+        });
+        
+        setAccessToken(null);
+        setUser(null);
+        localStorage.removeItem("claimly_token");
+        localStorage.removeItem("claimly_user");
+        
+        toast.success("Berhasil Keluar", {
+            description: "Sesi Anda telah diakhiri secara menyeluruh."
+        });
+
+        window.location.href = "/auth";
+    } catch (error) {
+        console.error("[AuthContext.logoutLocal] Error:", error);
+        setIsLoading(false);
+    }
   }
 
   return (
-    <AuthContext.Provider value={{ user, accessToken, isLoading, signIn, signUp, initZkpKeys, logoutLocal }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        accessToken,
+        isLoading,
+        signIn,
+        signUp,
+        logoutLocal
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )

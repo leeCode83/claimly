@@ -9,6 +9,27 @@ import { AuthService } from '@/service/auth/auth.service';
 export async function POST(request: Request) {
   try {
     const { supabase } = await getSupabaseServer(request);
+    
+    // Invalidate Keycloak SSO Session via Backchannel Logout if connected
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.provider_refresh_token) {
+        try {
+            const formBody = new URLSearchParams();
+            formBody.append("client_id", "claimly-supabase");
+            formBody.append("refresh_token", session.provider_refresh_token);
+
+            const keycloakBaseUrl = process.env.NEXT_PUBLIC_KEYCLOAK_URL || "http://localhost:8080";
+            await fetch(`${keycloakBaseUrl}/realms/claimly/protocol/openid-connect/logout`, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: formBody.toString()
+            });
+            console.log('[SignOut Route] Successfully revoked Keycloak session.');
+        } catch (kcErr) {
+            console.error('[SignOut Route] Failed to revoke Keycloak session:', kcErr);
+        }
+    }
+
     const authService = new AuthService(supabase);
     const result = await authService.signOut();
 

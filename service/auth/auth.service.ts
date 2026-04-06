@@ -7,11 +7,14 @@ export class AuthService {
      * Initiates OAuth flow with Keycloak.
      * Returns the authorization URL for the client to redirect to.
      */
-    async getOAuthLoginUrl(redirectTo?: string) {
+    async getOAuthLoginUrl(origin?: string, redirectTo?: string) {
+        const baseUrl = origin || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        const callbackUrl = `${baseUrl}/api/auth/callback`;
+
         const { data, error } = await this.supabase.auth.signInWithOAuth({
             provider: 'keycloak',
             options: {
-                redirectTo: redirectTo || 'http://host.docker.internal:3000/api/auth/callback',
+                redirectTo: redirectTo || callbackUrl,
                 skipBrowserRedirect: true, // Return URL instead of redirecting if called from server
                 scopes: 'openid profile email', // Explicitly request OpenID scope
             }

@@ -28,7 +28,7 @@ export default function Home() {
         rolePath = user.role;
       }
 
-      console.log(`[AuthRedirect] User: ${user.email}, Role: ${user.role}, Target: /dashboard/${rolePath}`);
+      // console.log(`[AuthRedirect] User: ${user.email}, Role: ${user.role}, Target: /dashboard/${rolePath}`);
       router.push(`/dashboard/${rolePath}`)
     }
   }, [user, accessToken, isLoading, router])

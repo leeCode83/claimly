@@ -24,7 +24,7 @@ if (fs.existsSync(envPath)) {
  * Updated to cover all endpoints and the new asynchronous ZKP verification flow.
  */
 
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
 
 // Helper for API calls
 async function apiRequest(endpoint: string, method: string = 'GET', body: Record<string, unknown> | null = null, token: string | null = null) {

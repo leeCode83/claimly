@@ -1,5 +1,7 @@
 "use client"
 
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { ShieldCheckIcon, Loader2Icon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -7,7 +9,20 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { useAuthContext } from "@/context/AuthContext"
 
 export default function AuthPage() {
-  const { signIn, isLoading } = useAuthContext()
+  const { signIn, isLoading, accessToken, user } = useAuthContext()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!isLoading && accessToken && user) {
+      let redirectPath = '/dashboard'
+      if (user.role === 'hospital_staff') redirectPath = '/dashboard/hospital'
+      else if (user.role === 'insurance_reviewer') redirectPath = '/dashboard/insurance'
+      else if (user.role === 'patient') redirectPath = '/dashboard/patient'
+      else if (user.role === 'admin') redirectPath = '/dashboard/admin'
+      
+      router.push(redirectPath)
+    }
+  }, [isLoading, accessToken, user, router])
 
   return (
     <div className="container relative flex h-screen flex-col items-center justify-center md:grid lg:max-w-none lg:grid-cols-2 lg:px-0">

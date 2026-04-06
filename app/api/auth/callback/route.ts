@@ -18,31 +18,29 @@ export async function GET(request: Request) {
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_KEY!, // Use 'key' consistent with existing config
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll()
-          },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              )
-            } catch {
-              // This can be ignored if session refresh is handled in middleware
-            }
-          },
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
         },
-      }
-    )
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            )
+          } catch {
+            // This can be ignored if session refresh is handled in middleware
+          }
+        },
+      },
+    }
+  )
 
-    const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+    const { data: sessionData, error } = await supabase.auth.exchangeCodeForSession(code)
     
     if (!error) {
-      const user = data.user
+      const user = sessionData.user
       const role = user?.user_metadata?.custom_claims?.role || user?.user_metadata?.role
-
-      console.log(`[AuthCallback] User role detected: ${role}`);
 
       let redirectPath = '/dashboard'
       if (role === 'hospital_staff') redirectPath = '/dashboard/hospital'
@@ -50,6 +48,7 @@ export async function GET(request: Request) {
       else if (role === 'patient') redirectPath = '/dashboard/patient'
       else if (role === 'admin') redirectPath = '/dashboard/admin'
 
+      // console.log(`[AuthCallback] Final redirecting to: ${origin}${redirectPath}`);
       return NextResponse.redirect(`${origin}${redirectPath}`)
     } else {
       console.error('[AuthCallback Error]:', error.message)
@@ -57,5 +56,6 @@ export async function GET(request: Request) {
   }
 
   // Redirect to an error page if authentication fails
+  // console.log(`[AuthCallback Request Failed] Redirecting back to: /auth/auth-code-error`);
   return NextResponse.redirect(`${origin}/auth/auth-code-error`)
 }

@@ -6,8 +6,9 @@ export async function POST(request: Request) {
   try {
     const { supabase } = await getSupabaseServer(request);
     
+    const { origin } = new URL(request.url);
     const authService = new AuthService(supabase);
-    const data = await authService.getOAuthLoginUrl();
+    const data = await authService.getOAuthLoginUrl(origin);
 
     // Data will contain { provider: 'keycloak', url: '...' }
     return NextResponse.json({ data }, { status: 200 });
