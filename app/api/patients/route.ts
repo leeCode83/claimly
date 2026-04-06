@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
-import { UserService } from "@/service/user/user.service";
 import { PatientService } from "@/service/patient/patient.service";
 
 export async function GET(request: NextRequest) {
@@ -8,14 +7,14 @@ export async function GET(request: NextRequest) {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const userService = new UserService(supabase);
-        const requesterProfile = await userService.getMe(user.id);
+        const role = user.user_metadata?.role;
+        const institution_id = user.user_metadata?.institution_id;
 
-        if (requesterProfile.role !== 'hospital_staff') {
+        if (role !== 'hospital_staff') {
             return NextResponse.json({ error: 'Forbidden: Hanya hospital_staff yang dapat mengakses daftar pasien' }, { status: 403 });
         }
 
-        if (!requesterProfile.institution_id) {
+        if (!institution_id) {
             return NextResponse.json({ error: 'Forbidden: Akun Anda belum terhubung ke institusi manapun' }, { status: 403 });
         }
 
@@ -25,7 +24,7 @@ export async function GET(request: NextRequest) {
         const search = searchParams.get('search') || '';
 
         const patientService = new PatientService(supabase);
-        const result = await patientService.getPatients({ hospitalId: requesterProfile.institution_id, page, limit, search });
+        const result = await patientService.getPatients({ hospitalId: institution_id, page, limit, search });
 
         return NextResponse.json({
             message: "Berhasil mengambil daftar pasien",
@@ -43,21 +42,21 @@ export async function POST(request: NextRequest) {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const userService = new UserService(supabase);
-        const requesterProfile = await userService.getMe(user.id);
+        const role = user.user_metadata?.role;
+        const institution_id = user.user_metadata?.institution_id;
 
-        if (requesterProfile.role !== 'hospital_staff') {
+        if (role !== 'hospital_staff') {
             return NextResponse.json({ error: 'Forbidden: Hanya hospital_staff yang dapat mendaftarkan pasien' }, { status: 403 });
         }
 
-        if (!requesterProfile.institution_id) {
+        if (!institution_id) {
             return NextResponse.json({ error: 'Forbidden: Akun Anda belum terhubung ke institusi manapun' }, { status: 403 });
         }
 
         const body = await request.json();
 
         const patientService = new PatientService(supabase);
-        const data = await patientService.createPatient(body, user.id, requesterProfile.institution_id);
+        const data = await patientService.createPatient(body, user.id, institution_id);
 
         return NextResponse.json({
             message: "Pasien berhasil didaftarkan",

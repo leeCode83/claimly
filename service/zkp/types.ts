@@ -39,6 +39,10 @@ export interface GenerateProofInput {
   approvedDiagnosisRoot: string;
   approvedProcedureRoot: string;
   maxCoverageAmount: number;
+  artifacts?: {
+    wasm_url?: string | null;
+    zkey_url?: string | null;
+  };
 }
 
 export interface GenerateProofOutput {
