@@ -26,12 +26,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [accessToken, setAccessToken] = useState<string | null>(null)
-<<<<<<< HEAD
-  const [isLoading, setIsLoading] = useState(false)
-=======
   const [isLoading, setIsLoading] = useState(true) // Start as loading to prevent premature redirects
-  const usersApi = useUsers(accessToken)
->>>>>>> keycloak
 
   // Initialize from Supabase Session
   useEffect(() => {
@@ -103,39 +98,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(result.error || "Gagal mendapatkan URL Login")
       }
 
-<<<<<<< HEAD
-      const authData = result.data.session;
-      const token = authData?.access_token;
-      
-      if (token) {
-        setAccessToken(token)
-        localStorage.setItem("claimly_token", token)
-
-        const rawUser = authData.user;
-        const userData: User = {
-          id: rawUser.id,
-          email: rawUser.email,
-          role: rawUser.user_metadata?.role,
-          full_name: rawUser.user_metadata?.full_name,
-          institution_id: rawUser.user_metadata?.institution_id,
-        };
-        
-        setUser(userData)
-        localStorage.setItem("claimly_user", JSON.stringify(userData))
-
-        toast.success("Sign In Berhasil", {
-          description: `Selamat datang kembali, ${userData.full_name || userData.email}!`,
-        })
-
-        return token
-      }
-
-      return null
-=======
       if (result.data?.url) {
         window.location.href = result.data.url
       }
->>>>>>> keycloak
     } catch (error: any) {
       console.error("[AuthContext.signIn] Error:", error.message)
       toast.error("Otentikasi Gagal", { description: error.message })
@@ -183,37 +148,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(result.error || "Gagal menyimpan kunci keamanan.")
       }
 
-<<<<<<< HEAD
-      const authData = result.data.session;
-      const token = authData?.access_token;
-
-      if (token) {
-        setAccessToken(token)
-        localStorage.setItem("claimly_token", token)
-
-        const rawUser = authData.user;
-        const userData: User = {
-          id: rawUser.id,
-          email: rawUser.email,
-          role: rawUser.user_metadata?.role,
-          full_name: rawUser.user_metadata?.full_name,
-          institution_id: rawUser.user_metadata?.institution_id,
-        };
-
-        setUser(userData)
-        localStorage.setItem("claimly_user", JSON.stringify(userData))
-      }
-
-      toast.success("Sign Up Berhasil", {
-        description: "Akun Anda telah berhasil dibuat. Silakan cek email untuk verifikasi.",
-      })
-
-      return token || null
-=======
       toast.success("Kunci Keamanan Berhasil Dibuat", {
         description: "Data Anda sekarang terlindungi sepenuhnya.",
       })
->>>>>>> keycloak
     } catch (error: any) {
       toast.error("Gagal inisialisasi kunci", { description: error.message })
       throw error
