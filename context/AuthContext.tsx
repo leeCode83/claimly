@@ -17,8 +17,9 @@ interface AuthContextType {
   user: User | null
   accessToken: string | null
   isLoading: boolean
-  signIn: (payload: { email?: string; password?: string }) => Promise<string | null>
-  signUp: (payload: { email?: string; password?: string; full_name?: string; role?: string; institution_id?: string }) => Promise<string | null>
+  signIn: () => Promise<void>
+  signUp: () => Promise<void>
+  initZkpKeys: (pin: string) => Promise<void>
   logoutLocal: () => void
 }
 
@@ -40,99 +41,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const signIn = async (payload: { email?: string; password?: string }) => {
+  const signIn = async () => {
     setIsLoading(true)
     try {
       const response = await fetch("/api/auth/signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
       })
 
       const result = await response.json()
 
       if (!response.ok) {
-        const message = result.error || "Gagal masuk. Silakan cek kembali email dan password Anda."
-        toast.error("Sign In Gagal", { description: message })
-        throw new Error(message)
+        throw new Error(result.error || "Gagal mendapatkan URL Login")
       }
 
-      const token = result.data.session?.access_token
-      setAccessToken(token)
-      localStorage.setItem("claimly_token", token)
-
-      // Use the hook's getMe function with token override
-      const userData: User = await usersApi.getMe(token)
-      
-      setUser(userData)
-      localStorage.setItem("claimly_user", JSON.stringify(userData))
-
-      toast.success("Sign In Berhasil", {
-        description: `Selamat datang kembali, ${userData.full_name || userData.email}!`,
-      })
-
-      return token
+      if (result.data?.url) {
+        window.location.href = result.data.url
+      }
     } catch (error: any) {
       console.error("[AuthContext.signIn] Error:", error.message)
-      if (error.message === "Failed to fetch") {
-        toast.error("Masalah Jaringan", { description: "Tidak dapat terhubung ke server." })
-      }
-      throw error
+      toast.error("Otentikasi Gagal", { description: error.message })
     } finally {
       setIsLoading(false)
     }
   }
 
-  const signUp = async (payload: {
-    email?: string;
-    password?: string;
-    full_name?: string;
-    role?: string;
-    institution_id?: string;
-  }) => {
+  const signUp = async () => {
+    // For OIDC, signup usually happens in the same IdP UI or a dedicated link
+    // We redirect to the same Keycloak login which usually has a 'Register' link
+    await signIn()
+  }
+
+  const initZkpKeys = async (pin: string) => {
+    if (!accessToken) {
+      toast.error("Error", { description: "User session not found" })
+      return
+    }
+
     setIsLoading(true)
     try {
-      let signupPayload: any = { ...payload }
-
-      if (payload.password) {
-        toast.info("Menyiapkan kunci keamanan...", {
-          description: "Generasi kunci enkripsi dilakukan secara lokal di perangkat Anda.",
-        })
-        
-        const bundle = await generateUserKeypairInBrowser(payload.password)
-        
-        signupPayload = {
-          ...signupPayload,
+      toast.info("Menyiapkan kunci keamanan...", {
+        description: "Generasi kunci enkripsi dilakukan secara lokal di perangkat Anda.",
+      })
+      
+      const bundle = await generateUserKeypairInBrowser(pin)
+      
+      const response = await fetch("/api/auth/init-zkp", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
           p_public_key:           bundle.publicKeyB64,
           p_encrypted_priv_key:   bundle.encryptedPrivKeyB64,
           p_key_derivation_salt:  bundle.saltB64,
           p_key_iv:               bundle.ivB64,
-        }
-      }
-
-      const response = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signupPayload),
+        }),
       })
-
-      const result = await response.json()
 
       if (!response.ok) {
-        const message = result.error || "Gagal mendaftar. Silakan coba lagi."
-        toast.error("Sign Up Gagal", { description: message })
-        throw new Error(message)
+        const result = await response.json()
+        throw new Error(result.error || "Gagal menyimpan kunci keamanan.")
       }
 
-      toast.success("Sign Up Berhasil", {
-        description: "Akun Anda telah berhasil dibuat. Silakan cek email untuk verifikasi.",
+      toast.success("Kunci Keamanan Berhasil Dibuat", {
+        description: "Data Anda sekarang terlindungi sepenuhnya.",
       })
-
-      return result.data.session?.access_token || null
     } catch (error: any) {
-      if (error.message === "Failed to fetch") {
-        toast.error("Masalah Jaringan", { description: "Tidak dapat terhubung ke server." })
-      }
+      toast.error("Gagal inisialisasi kunci", { description: error.message })
       throw error
     } finally {
       setIsLoading(false)
@@ -148,7 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, accessToken, isLoading, signIn, signUp, logoutLocal }}>
+    <AuthContext.Provider value={{ user, accessToken, isLoading, signIn, signUp, initZkpKeys, logoutLocal }}>
       {children}
     </AuthContext.Provider>
   )
