@@ -113,6 +113,7 @@ export default function HospitalDashboard() {
     submitProofForExistingClaim,
     getClaims: getClaimsList, 
     getClaimById: getClaimDetail,
+    verifyClaim,
     zkpStatus, 
     isLoading: isClaimsMutationLoading, 
     zkpError 
@@ -405,17 +406,16 @@ export default function HospitalDashboard() {
         procedure_date: claim.procedure_date,
         claim_amount: claim.claim_amount
       })
-      
-      // Post-submit cleanup and data refresh
       loadLastClaims()
-      
-      // If the detail modal is currently open for THIS claim, re-fetch its full details.
-      // This ensures the nested zkp_proofs array is populated and the UI updates (Proof JSON visibility).
-      if (isClaimDetailOpen && (selectedClaim?.id === id || selectedClaim?.claim_id === id)) {
-        await handleViewClaimDetail(claim);
-      }
-    } catch (err) { 
-      console.error("ZKP submission failed:", err);
+    } catch (err) { }
+  }
+
+  const handleVerifyClaim = async (id: string) => {
+    try {
+      await verifyClaim(id)
+      loadLastClaims() // Refresh list after verification result received
+    } catch (err) {
+      console.error("Manual verification trigger failed:", err)
     }
   }
 
@@ -1224,7 +1224,19 @@ export default function HospitalDashboard() {
                             {claim.status.toUpperCase()}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-right flex items-center justify-end gap-2 text-xs">
+                        <TableCell className="text-right flex items-center justify-end gap-1 text-xs">
+                          {claim.status === 'submitted' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 px-2 border-primary/30 text-primary hover:bg-primary/5"
+                              onClick={() => handleVerifyClaim(claim.claim_id || claim.id)}
+                              disabled={isClaimsMutationLoading}
+                            >
+                              {isClaimsMutationLoading ? <Loader2Icon className="size-3 animate-spin"/> : <CheckCircle2Icon className="size-3 mr-1" />}
+                              Verifikasi
+                            </Button>
+                          )}
                           <Button 
                             size="sm" 
                             variant="ghost" 

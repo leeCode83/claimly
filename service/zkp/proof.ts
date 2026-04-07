@@ -15,10 +15,15 @@ const ARTIFACTS_BUCKET = 'zkp-artifacts';
  * Client-side: uses public URL (assuming bucket is public).
  */
 const getSupabaseClient = () => {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = typeof window !== 'undefined' 
-    ? process.env.NEXT_PUBLIC_SUPABASE_KEY! 
-    : (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_KEY!);
+    ? process.env.NEXT_PUBLIC_SUPABASE_KEY 
+    : (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_KEY);
+
+  if (!url || !key) {
+    const missing = !url ? 'NEXT_PUBLIC_SUPABASE_URL' : 'SUPABASE Keys';
+    throw new Error(`Supabase configuration is missing: ${missing}. Check your .env or .env.local file. If running a worker, ensure loadEnvConfig is called.`);
+  }
   
   return createClient(url, key);
 };

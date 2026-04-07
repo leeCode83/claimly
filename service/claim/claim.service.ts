@@ -325,18 +325,21 @@ export class ClaimService {
         return claim;
     }
 
+    /**
+     * Meminta verifikasi ZKP untuk sebuah klaim secara asinkron (Trigger).
+     * Dipanggil oleh Frontend/Dashboard via API Route.
+     */
     async verifyClaim(claimId: string) {
-        // 1. Fetch claim beserta proof dan data pendukung untuk validasi
         const fullClaim = await this.getClaimById(claimId) as unknown as Claim;
-
         const zkpProof = fullClaim.zkp_proofs as ZkpProof | undefined;
+
         if (!zkpProof) {
             const err = new Error("Klaim tidak memiliki ZKP proof untuk diverifikasi") as AppError;
             err.status = 400;
             throw err;
         }
 
-        // 2. Jika sudah pernah diverifikasi, kembalikan hasil cached
+        // Jika sudah pernah diverifikasi, kembalikan hasil cached
         if (zkpProof.verification_result !== null) {
             return {
                 claim_id: claimId,
@@ -346,60 +349,81 @@ export class ClaimService {
             };
         }
 
-        // 3. Validasi konsistensi public signals dengan data klaim
-        const policyData = fullClaim.patient_policies?.insurance_policies;
-        const policy = Array.isArray(policyData) ? policyData[0] : policyData;
-        const procedure = fullClaim.procedures;
-
-        const validation = validatePublicSignals(zkpProof.public_signals, {
-            procedureCode: procedure?.icd9_integer_encoding || 0,
-            claimAmount: fullClaim.claim_amount,
-            procedureDate: fullClaim.procedure_date_encoded,
-            approvedDiagnosisRoot: policy?.approved_diagnosis_root || "",
-            approvedProcedureRoot: policy?.approved_procedure_root || "",
-            maxCoverageAmount: procedure?.default_max_coverage || 0
-        });
-
-        if (!validation.isValid) {
-            const err = new Error(`Integritas proof gagal: ${validation.reason}`) as AppError;
-            err.status = 400;
-            throw err;
-        }
-
-        // 4. Verifikasi kriptografis
-        const { isValid } = await verifyProof({
-            proof: zkpProof.proof_json,
-            publicSignals: zkpProof.public_signals
-        });
-
-        if (!isValid) {
-            const err = new Error("Verifikasi ZKP proof gagal: bukti tidak valid atau tidak sesuai dengan data klaim") as AppError;
-            err.status = 400;
-            throw err;
-        }
-
-        // 5. Simpan hasil verifikasi ke tabel zkp_proofs (satu-satunya perubahan DB)
-        const verifiedAt = new Date().toISOString();
-        const { error: updateError } = await this.supabase
-            .from('zkp_proofs')
-            .update({
-                verification_result: true,
-                verified_at: verifiedAt
-            })
-            .eq('id', zkpProof.id);
-
-        if (updateError) {
-            const err = new Error(`Gagal menyimpan hasil verifikasi: ${updateError.message}`) as AppError;
-            err.status = 500;
-            throw err;
-        }
+        // Masukkan ke antrean verifikasi asinkron (BullMQ Worker)
+        await enqueueVerification(claimId, "manual_review");
 
         return {
             claim_id: claimId,
-            verification_result: true,
-            verified_at: verifiedAt,
-            cached: false
+            status: "processing",
+            message: "Verifikasi klaim telah dimasukkan ke dalam antrean sistem. Mohon tunggu proses real-time selesai."
         };
+    }
+
+    /**
+     * Eksekutor Logika Verifikasi ZKP (Worker Only).
+     * Fungsi ini melakukan pengambilan data relasional dan verifikasi matematis.
+     * Tidak memasukkan kembali ke antrean (mencegah infinite loop).
+     */
+    async executeInternalVerification(claimId: string) {
+        const fullClaim = await this.getClaimById(claimId) as unknown as Claim;
+        const zkpProof = fullClaim.zkp_proofs as ZkpProof | undefined;
+
+        if (!zkpProof) {
+            throw new Error(`[Worker] Claim ${claimId} has no ZKP proof.`);
+        }
+
+        // 1. Ambil Dependensi untuk Validasi Sinyal Publik
+        const { medRecord, patientPolicy, procedure } = await this.getClaimDependencies(
+            fullClaim.medical_record_id,
+            fullClaim.patient_policy_id,
+            fullClaim.procedure_id
+        );
+
+        const policyData = patientPolicy.insurance_policies;
+        const policy = Array.isArray(policyData) ? policyData[0] : policyData;
+
+        // 2. Validasi Konsistensi Sinyal Publik
+        const validation = validatePublicSignals(zkpProof.public_signals, {
+            procedureCode: procedure.icd9_integer_encoding,
+            claimAmount: fullClaim.claim_amount,
+            procedureDate: fullClaim.procedure_date_encoded,
+            approvedDiagnosisRoot: policy.approved_diagnosis_root,
+            approvedProcedureRoot: policy.approved_procedure_root,
+            maxCoverageAmount: procedure.default_max_coverage
+        });
+
+        if (!validation.isValid) {
+            console.error(`[Worker] Public signals validation failed for claim ${claimId}: ${validation.reason}`);
+            await this.updateVerificationResult(zkpProof.id, false);
+            return false;
+        }
+
+        // 3. Eksekusi Verifikasi Kriptografi (Matematis)
+        const verificationOutput = await verifyProof({
+            proof: zkpProof.proof_json,
+            publicSignals: zkpProof.public_signals
+        });
+        const isVerified = verificationOutput.isValid;
+
+        // 4. Update Hasil ke Database
+        await this.updateVerificationResult(zkpProof.id, isVerified);
+        
+        console.log(`[Worker] Claim ${claimId} verification result: ${isVerified}`);
+        return isVerified;
+    }
+
+    private async updateVerificationResult(proofId: string, result: boolean) {
+        const { error } = await this.supabase
+            .from('zkp_proofs')
+            .update({
+                verification_result: result,
+                verified_at: new Date().toISOString()
+            })
+            .eq('id', proofId);
+
+        if (error) {
+            throw new Error(`[Worker] Failed to update verification result: ${error.message}`);
+        }
     }
 
     /**
@@ -408,40 +432,8 @@ export class ClaimService {
      * Jika sudah diverifikasi, kembalikan hasil cache.
      * Jika belum, enqueue ke worker dan return status "verifying".
      */
-    async requestVerification(claimId: string): Promise<{
-        claim_id: string;
-        status: "verifying" | "already_verified";
-        verification_result?: boolean;
-        verified_at?: string;
-        cached?: boolean;
-    }> {
-        const claim = await this.getClaimById(claimId) as unknown as Claim;
-        const zkpProof = claim.zkp_proofs as ZkpProof | undefined;
-
-        if (!zkpProof) {
-            const err = new Error("Klaim tidak memiliki ZKP proof untuk diverifikasi") as AppError;
-            err.status = 400;
-            throw err;
-        }
-
-        // Jika sudah pernah diverifikasi, return cache - tidak perlu re-enqueue
-        if (zkpProof.verification_result !== null) {
-            return {
-                claim_id: claimId,
-                status: "already_verified",
-                verification_result: zkpProof.verification_result,
-                verified_at: zkpProof.verified_at,
-                cached: true,
-            };
-        }
-
-        // Enqueue ke worker - async, non-blocking
-        await enqueueVerification(claimId, "manual_review");
-
-        return {
-            claim_id: claimId,
-            status: "verifying",
-        };
+    async requestVerification(claimId: string) {
+        return this.verifyClaim(claimId);
     }
 
     /**
@@ -465,38 +457,46 @@ export class ClaimService {
     }
 
     async approveClaim(claimId: string, reviewerId: string, reviewNotes?: string) {
-        // Fetch claim with proof for validation
+        // Fetch claim with all dependencies in one query, but more defensively
         const { data: claim, error: fetchError } = await this.supabase
             .from('claims')
-            .select('*, procedures!inner(icd9_integer_encoding, icd10_integer_encoding:icd9_integer_encoding, default_max_coverage), medical_records!inner(diagnosis_date_encoded, diagnosis:diagnosis_id(icd10_integer_encoding)), patient_policies!inner(id, start_date, end_date, insurance_policies:policy_id(id, approved_diagnosis_root, approved_procedure_root)), zkp_proofs(*)')
+            .select('*, zkp_proofs (verification_result)')
             .eq('id', claimId)
-            .single();
+            .maybeSingle();
 
-        if (fetchError || !claim) {
-            const err = new Error(fetchError?.message || "Klaim tidak ditemukan") as AppError;
+        if (fetchError) {
+            const err = new Error(`Gagal mengambil data klaim: ${fetchError.message}`) as AppError;
+            err.status = 500;
+            throw err;
+        }
+
+        if (!claim) {
+            const err = new Error("Klaim tidak ditemukan atau data kaitan (prosedur/polis) bermasalah.") as AppError;
             err.status = 404;
             throw err;
         }
 
-        const zkpProof = (claim as unknown as Claim).zkp_proofs as ZkpProof | undefined;
+        // Extract proof from joined table (Supabase returns array for 1-to-many/many-to-many joins)
+        const zkpProofsData = (claim as any).zkp_proofs;
+        const zkpProof = Array.isArray(zkpProofsData) ? zkpProofsData[0] : zkpProofsData;
+
         if (!zkpProof) {
             const err = new Error("Klaim tidak dapat disetujui tanpa ZKP proof") as AppError;
             err.status = 400;
             throw err;
         }
 
-        // Cek status verifikasi. Jika belum, enqueue dan throw 409 Conflict.
+        // Cek status verifikasi.
         if (zkpProof.verification_result === null) {
-            await enqueueVerification(claimId, "manual_review");
             const err = new Error(
-                "Verifikasi ZKP sedang diproses di latar belakang. Silakan coba approve kembali beberapa saat lagi setelah verifikasi selesai."
+                "Klaim tidak dapat diproses: Verifikasi ZKP belum selesai dilakukan oleh worker. Mohon tunggu beberapa saat."
             ) as AppError;
             err.status = 409;
             throw err;
         }
 
-        if (!zkpProof.verification_result) {
-            const err = new Error("Klaim tidak dapat disetujui: ZKP proof tidak valid (verifikasi gagal)") as AppError;
+        if (zkpProof.verification_result === false) {
+            const err = new Error("Klaim tidak dapat disetujui: Hasil verifikasi ZKP menyatakan proof TIDAK VALID.") as AppError;
             err.status = 400;
             throw err;
         }
@@ -540,18 +540,6 @@ export class ClaimService {
                 throw err;
             }
 
-            // 4.2 Verifikasi Kriptografis (Synchronous)
-            const { isValid } = await verifyProof({
-                proof: payload.proof,
-                publicSignals: payload.public_signals
-            });
-
-            if (!isValid) {
-                const err = new Error("Verifikasi ZKP gagal: Proof tidak valid secara matematis atau tidak cocok dengan data.") as AppError;
-                err.status = 400;
-                throw err;
-            }
-
             const { error: proofError } = await this.supabase
                 .from('zkp_proofs')
                 .insert({
@@ -567,8 +555,7 @@ export class ClaimService {
             // 5. Update status claim jadi submitted
             await this.supabase.from('claims').update({ status: 'submitted' }).eq('id', claimId);
 
-            // 6. Enqueue verifikasi asinkron ke BullMQ
-            await enqueueVerification(claimId, "submit");
+            // 6. Enqueue verifikasi asinkron dihapus, sekarang dilakukan manual via tombol 'Verify' di Dashboard
         } catch (err) {
             await this.supabase.from('claims').update({ status: 'Fail generate proof' }).eq('id', claimId);
             throw err;
@@ -579,6 +566,30 @@ export class ClaimService {
         if (!reviewNotes || reviewNotes.trim() === '') {
             const err = new Error("review_notes wajib diisi saat menolak klaim") as AppError;
             err.status = 400;
+            throw err;
+        }
+
+        // Fetch claim and zkp status for rejection guard
+        const { data: claim, error: fetchError } = await this.supabase
+            .from('claims')
+            .select('zkp_proofs(verification_result)')
+            .eq('id', claimId)
+            .maybeSingle();
+
+        if (fetchError || !claim) {
+            const err = new Error("Klaim tidak ditemukan.") as AppError;
+            err.status = 404;
+            throw err;
+        }
+
+        const zkpProofsData = (claim as any).zkp_proofs;
+        const zkpProof = Array.isArray(zkpProofsData) ? zkpProofsData[0] : zkpProofsData;
+
+        if (!zkpProof || zkpProof.verification_result === null) {
+            const err = new Error(
+                "Klaim tidak dapat diproses: Verifikasi ZKP belum selesai dilakukan. Keputusan manual (Reject) hanya dapat diambil setelah integritas proof diverifikasi sistem."
+            ) as AppError;
+            err.status = 409;
             throw err;
         }
 
@@ -599,13 +610,13 @@ export class ClaimService {
     private async getClaimDependencies(medical_record_id: string, patient_policy_id: string, procedure_id: string) {
         const [mrRes, ppRes, procRes] = await Promise.all([
             this.supabase.from('medical_records')
-                .select('diagnosis_date_encoded, diagnosis:diagnosis_id(icd10_integer_encoding)')
+                .select('*, diagnosis:diagnosis_id(icd10_integer_encoding)')
                 .eq('id', medical_record_id).single(),
             this.supabase.from('patient_policies')
-                .select('id, start_date, end_date, insurance_policies:policy_id(id, approved_diagnosis_root, approved_procedure_root)')
+                .select('*, insurance_policies:policy_id(*)')
                 .eq('id', patient_policy_id).single(),
             this.supabase.from('procedures')
-                .select('id, icd9_integer_encoding, default_max_coverage')
+                .select('*')
                 .eq('id', procedure_id).single()
         ]);
 
