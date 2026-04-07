@@ -32,3 +32,28 @@ export async function POST(
         );
     }
 }
+
+export async function GET(
+    request: NextRequest,
+    props: { params: Promise<{ id: string }> }
+) {
+    try {
+        const { supabase, user } = await getSupabaseServer(request);
+        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+        const params = await props.params;
+        const claimId = params.id;
+
+        const claimService = new ClaimService(supabase);
+        const proofData = await claimService.getClaimProof(claimId);
+
+        return NextResponse.json(proofData, { status: 200 });
+
+    } catch (err) {
+        const error = err as Error & { status?: number };
+        return NextResponse.json(
+            { error: error.message || 'Internal Server Error' }, 
+            { status: error.status || 500 }
+        );
+    }
+}

@@ -79,9 +79,12 @@ export const useClaims = (token?: string | null) => {
                 headers: getHeaders(false),
             });
             const result = await response.json();
+            console.log(result);
 
             if (!response.ok) {
-                throw new Error(result.error || `Gagal mengambil detail klaim ${id}`);
+                const message = result.error || `Gagal mengambil detail klaim ${id}`;
+                toast.error("Error", { description: message });
+                throw new Error(message);
             }
 
             return result.data;
@@ -95,7 +98,7 @@ export const useClaims = (token?: string | null) => {
 
     /**
      * Submit a new claim.
-     * @param payload Claim submission data
+     * @param payload Claim submission data including optional proof
      */
     const submitClaim = async (payload: {
         patient_policy_id: string;
@@ -103,6 +106,8 @@ export const useClaims = (token?: string | null) => {
         procedure_id: string;
         procedure_date: string;
         claim_amount: number;
+        proof?: any;
+        public_signals?: string[];
     }) => {
         setIsLoading(true);
         try {
@@ -120,8 +125,11 @@ export const useClaims = (token?: string | null) => {
                 throw new Error(message);
             }
 
-            toast.success("Klaim Berhasil Diajukan", {
-                description: "ZKP proof telah digenerate dan status klaim telah menjadi submitted.",
+            const isPending = !payload.proof;
+            toast.success(isPending ? "Klaim Berhasil Disimpan" : "Klaim Berhasil Diajukan", {
+                description: isPending 
+                    ? "Status klaim saat ini PENDING. Silakan lampirkan proof nanti." 
+                    : "ZKP proof telah disertakan dan status klaim telah menjadi submitted.",
             });
 
             return result;
@@ -363,6 +371,132 @@ export const useClaims = (token?: string | null) => {
         }
     };
 
+    /**
+     * Generate and submit ZKP proof for an existing claim.
+     * @param claimId Existing claim UUID
+     * @param data Necessary claim data to generate the proof (from the claim object)
+     */
+    const submitProofForExistingClaim = async (claimId: string, data: {
+        patient_policy_id: string;
+        medical_record_id: string;
+        procedure_id: string;
+        procedure_date: string;
+        claim_amount: number;
+    }) => {
+        setIsLoading(true);
+        setZkpStatus('idle');
+        setZkpError(null);
+        
+        try {
+            // Phase 1: Prepare (Fetch Merkle paths & Signed URLs)
+            setZkpStatus('preparing');
+            const prepParams = new URLSearchParams({
+                patient_policy_id: data.patient_policy_id,
+                medical_record_id: data.medical_record_id,
+                procedure_id: data.procedure_id,
+                procedure_date: data.procedure_date,
+                claim_amount: data.claim_amount.toString(),
+            });
+            
+            const response = await fetch(`/api/claims/prepare?${prepParams.toString()}`, {
+                headers: getHeaders(false),
+            });
+            const result = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(result.error || "Gagal menyiapkan data ZKP");
+            }
+            
+            // Phase 2: Generate Proof
+            setZkpStatus('generating');
+            const { proof, publicSignals } = await generateProof(result.data);
+            
+            // Phase 3: Submit Proof
+            setZkpStatus('submitting');
+            const submitResponse = await fetch(`/api/claims/${claimId}/proof`, {
+                method: "POST",
+                headers: getHeaders(true),
+                body: JSON.stringify({
+                    proof,
+                    public_signals: publicSignals
+                }),
+            });
+            
+            const submitResult = await submitResponse.json();
+            
+            if (!submitResponse.ok) {
+                throw new Error(submitResult.error || "Gagal mengirimkan bukti ZKP");
+            }
+
+            // Phase 4: Wait for Verification (Reusable logic pattern)
+            setZkpStatus('verifying');
+            return new Promise((resolve, reject) => {
+                const checkStatus = async () => {
+                    try {
+                        const { data: claim, error } = await supabaseBrowser
+                            .from('claims')
+                            .select('status, review_notes')
+                            .eq('id', claimId)
+                            .single();
+                        
+                        if (error) throw error;
+                        if (claim.status === 'approved' || claim.status === 'rejected') {
+                            setFinalStatus(claim.status, claim.review_notes);
+                            resolve(submitResult);
+                            return true;
+                        }
+                        return false;
+                    } catch (err) {
+                        console.error("Error initial status check:", err);
+                        return false;
+                    }
+                };
+
+                const setFinalStatus = (status: string, notes?: string) => {
+                    if (status === 'approved') {
+                        setZkpStatus('success');
+                        toast.success("Verifikasi Berhasil", { description: "Klaim telah disetujui secara otomatis." });
+                    } else {
+                        setZkpStatus('error');
+                        setZkpError(notes || "Verifikasi gagal.");
+                        toast.error("Verifikasi Gagal", { description: notes || "Bukti ZKP tidak valid." });
+                    }
+                };
+
+                checkStatus().then(isDone => {
+                    if (isDone) return;
+                    const channel = supabaseBrowser
+                        .channel(`claim-status-${claimId}-retry`)
+                        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'claims', filter: `id=eq.${claimId}` }, (payload) => {
+                            if (payload.new.status === 'approved' || payload.new.status === 'rejected') {
+                                setFinalStatus(payload.new.status, payload.new.review_notes);
+                                supabaseBrowser.removeChannel(channel);
+                                resolve(submitResult);
+                            }
+                        })
+                        .subscribe();
+
+                    setTimeout(() => {
+                        supabaseBrowser.removeChannel(channel);
+                        if (zkpStatus === 'verifying') {
+                            setZkpStatus('error');
+                            setZkpError("Timeout verifikasi.");
+                            reject(new Error("Verification timeout"));
+                        }
+                    }, 60000);
+                });
+            });
+        } catch (error: any) {
+            console.error("[useClaims.submitProofForExistingClaim] Error:", error.message);
+            setZkpStatus('error');
+            setZkpError(error.message);
+            toast.error("Gagal Memproses Bukti", { description: error.message });
+            throw error;
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     return {
         isLoading,
         zkpStatus,
@@ -371,6 +505,7 @@ export const useClaims = (token?: string | null) => {
         getClaimById,
         submitClaim,
         submitClaimWithZkp,
+        submitProofForExistingClaim,
         approveClaim,
         rejectClaim,
     };

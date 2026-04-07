@@ -444,16 +444,36 @@ export class ClaimService {
         };
     }
 
+    /**
+     * Get ZKP proof details for a specific claim.
+     * @param claimId Claim UUID
+     */
+    async getClaimProof(claimId: string) {
+        const { data, error } = await this.supabase
+            .from('zkp_proofs')
+            .select('*')
+            .eq('claim_id', claimId)
+            .maybeSingle();
+
+        if (error) {
+            const err = new Error(error.message) as AppError;
+            err.status = 500;
+            throw err;
+        }
+
+        return data;
+    }
+
     async approveClaim(claimId: string, reviewerId: string, reviewNotes?: string) {
         // Fetch claim with proof for validation
         const { data: claim, error: fetchError } = await this.supabase
             .from('claims')
-            .select('*, zkp_proofs(*)')
+            .select('*, procedures!inner(icd9_integer_encoding, icd10_integer_encoding:icd9_integer_encoding, default_max_coverage), medical_records!inner(diagnosis_date_encoded, diagnosis:diagnosis_id(icd10_integer_encoding)), patient_policies!inner(id, start_date, end_date, insurance_policies:policy_id(id, approved_diagnosis_root, approved_procedure_root)), zkp_proofs(*)')
             .eq('id', claimId)
             .single();
 
         if (fetchError || !claim) {
-            const err = new Error("Klaim tidak ditemukan") as AppError;
+            const err = new Error(fetchError?.message || "Klaim tidak ditemukan") as AppError;
             err.status = 404;
             throw err;
         }
