@@ -17,9 +17,9 @@ interface AuthContextType {
   user: User | null
   accessToken: string | null
   isLoading: boolean
-  signIn: (payload: { email?: string; password?: string }) => Promise<string | null>
-  signUp: (payload: { email?: string; password?: string; full_name?: string; role?: string; institution_id?: string }) => Promise<string | null>
-  logoutLocal: () => void
+  signIn: () => Promise<void>
+  signUp: () => Promise<void>
+  logoutLocal: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -27,128 +27,177 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [accessToken, setAccessToken] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true) // Start as loading to prevent premature redirects
   const usersApi = useUsers(accessToken)
 
-  // Initialize from localStorage if available
+  // Initialize from Supabase Session
   useEffect(() => {
-    const storedToken = localStorage.getItem("claimly_token")
-    const storedUser = localStorage.getItem("claimly_user")
-    if (storedToken && storedUser) {
-      setAccessToken(storedToken)
-      setUser(JSON.parse(storedUser))
-    }
+    import('@supabase/ssr').then(({ createBrowserClient }) => {
+      const supabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_KEY!
+      )
+
+      const refreshSession = async () => {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session) {
+          setAccessToken(session.access_token)
+          const md = session.user.user_metadata;
+          const userObj = {
+            id: session.user.id,
+            email: session.user.email || "",
+            role: md?.custom_claims?.role || md?.role,
+            full_name: md?.name || md?.full_name || md?.custom_claims?.given_name,
+            institution_id: md?.custom_claims?.institution_id || md?.institution_id
+          }
+          setUser(userObj)
+          // Keep localStorage for backward compatibility with other frontend components
+          localStorage.setItem("claimly_token", session.access_token)
+          localStorage.setItem("claimly_user", JSON.stringify(userObj))
+        }
+        setIsLoading(false) // Finish initial loading
+      }
+
+      refreshSession()
+
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session) {
+          setAccessToken(session.access_token)
+          const md = session.user.user_metadata;
+          const userObj = {
+            id: session.user.id,
+            email: session.user.email || "",
+            role: md?.custom_claims?.role || md?.role,
+            full_name: md?.name || md?.full_name || md?.custom_claims?.given_name,
+            institution_id: md?.custom_claims?.institution_id || md?.institution_id
+          }
+          setUser(userObj)
+          localStorage.setItem("claimly_token", session.access_token)
+          localStorage.setItem("claimly_user", JSON.stringify(userObj))
+        } else {
+          setAccessToken(null)
+          setUser(null)
+          localStorage.removeItem("claimly_token")
+          localStorage.removeItem("claimly_user")
+        }
+      })
+
+      return () => {
+        subscription.unsubscribe()
+      }
+    })
   }, [])
 
-  const signIn = async (payload: { email?: string; password?: string }) => {
+  const signIn = async () => {
     setIsLoading(true)
     try {
       const response = await fetch("/api/auth/signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
       })
 
       const result = await response.json()
 
       if (!response.ok) {
-        const message = result.error || "Gagal masuk. Silakan cek kembali email dan password Anda."
-        toast.error("Sign In Gagal", { description: message })
-        throw new Error(message)
+        throw new Error(result.error || "Gagal mendapatkan URL Login")
       }
 
-      const token = result.data.session?.access_token
-      setAccessToken(token)
-      localStorage.setItem("claimly_token", token)
-
-      // Use the hook's getMe function with token override
-      const userData: User = await usersApi.getMe(token)
-      
-      setUser(userData)
-      localStorage.setItem("claimly_user", JSON.stringify(userData))
-
-      toast.success("Sign In Berhasil", {
-        description: `Selamat datang kembali, ${userData.full_name || userData.email}!`,
-      })
-
-      return token
+      if (result.data?.url) {
+        window.location.href = result.data.url
+      }
     } catch (error: any) {
       console.error("[AuthContext.signIn] Error:", error.message)
-      if (error.message === "Failed to fetch") {
-        toast.error("Masalah Jaringan", { description: "Tidak dapat terhubung ke server." })
-      }
-      throw error
+      toast.error("Otentikasi Gagal", { description: error.message })
     } finally {
       setIsLoading(false)
     }
   }
 
-  const signUp = async (payload: {
-    email?: string;
-    password?: string;
-    full_name?: string;
-    role?: string;
-    institution_id?: string;
-  }) => {
+  const signUp = async () => {
+    // For OIDC, signup usually happens in the same IdP UI or a dedicated link
+    // We redirect to the same Keycloak login which usually has a 'Register' link
+    await signIn()
+  }
+
+  const initZkpKeys = async (pin: string) => {
+    if (!accessToken) {
+      toast.error("Error", { description: "User session not found" })
+      return
+    }
+
     setIsLoading(true)
     try {
-      let signupPayload: any = { ...payload }
-
-      if (payload.password) {
-        toast.info("Menyiapkan kunci keamanan...", {
-          description: "Generasi kunci enkripsi dilakukan secara lokal di perangkat Anda.",
-        })
-        
-        const bundle = await generateUserKeypairInBrowser(payload.password)
-        
-        signupPayload = {
-          ...signupPayload,
+      toast.info("Menyiapkan kunci keamanan...", {
+        description: "Generasi kunci enkripsi dilakukan secara lokal di perangkat Anda.",
+      })
+      
+      const bundle = await generateUserKeypairInBrowser(pin)
+      
+      const response = await fetch("/api/auth/init-zkp", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
           p_public_key:           bundle.publicKeyB64,
           p_encrypted_priv_key:   bundle.encryptedPrivKeyB64,
           p_key_derivation_salt:  bundle.saltB64,
           p_key_iv:               bundle.ivB64,
-        }
-      }
-
-      const response = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signupPayload),
+        }),
       })
-
-      const result = await response.json()
 
       if (!response.ok) {
-        const message = result.error || "Gagal mendaftar. Silakan coba lagi."
-        toast.error("Sign Up Gagal", { description: message })
-        throw new Error(message)
+        const result = await response.json()
+        throw new Error(result.error || "Gagal menyimpan kunci keamanan.")
       }
 
-      toast.success("Sign Up Berhasil", {
-        description: "Akun Anda telah berhasil dibuat. Silakan cek email untuk verifikasi.",
+      toast.success("Kunci Keamanan Berhasil Dibuat", {
+        description: "Data Anda sekarang terlindungi sepenuhnya.",
       })
-
-      return result.data.session?.access_token || null
     } catch (error: any) {
-      if (error.message === "Failed to fetch") {
-        toast.error("Masalah Jaringan", { description: "Tidak dapat terhubung ke server." })
-      }
+      toast.error("Gagal inisialisasi kunci", { description: error.message })
       throw error
     } finally {
       setIsLoading(false)
     }
   }
 
-  const logoutLocal = () => {
-    setAccessToken(null)
-    setUser(null)
-    localStorage.removeItem("claimly_token")
-    localStorage.removeItem("claimly_user")
-    toast.success("Logged out successfully")
+  const logoutLocal = async () => {
+    setIsLoading(true);
+    try {
+        await fetch("/api/auth/signout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+        });
+        
+        setAccessToken(null);
+        setUser(null);
+        localStorage.removeItem("claimly_token");
+        localStorage.removeItem("claimly_user");
+        
+        toast.success("Berhasil Keluar", {
+            description: "Sesi Anda telah diakhiri secara menyeluruh."
+        });
+
+        window.location.href = "/auth";
+    } catch (error) {
+        console.error("[AuthContext.logoutLocal] Error:", error);
+        setIsLoading(false);
+    }
   }
 
   return (
-    <AuthContext.Provider value={{ user, accessToken, isLoading, signIn, signUp, logoutLocal }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        accessToken,
+        isLoading,
+        signIn,
+        signUp,
+        logoutLocal
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )

@@ -8,7 +8,7 @@ const connection = new Redis({
   maxRetriesPerRequest: null,
 });
 
-export const QUEUE_NAME = 'zkp-verification';
+export const QUEUE_NAME = 'verification-queue';
 
 export const verificationQueue = new Queue(QUEUE_NAME, {
   connection,

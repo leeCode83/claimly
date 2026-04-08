@@ -1,0 +1,138 @@
+{
+    "session": {
+        "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImI4MTI2OWYxLTIxZDgtNGYyZS1iNzE5LWMyMjQwYTg0MGQ5MCIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vMTI3LjAuMC4xOjU0MzIxL2F1dGgvdjEiLCJzdWIiOiI1Yzc4NmE1My04NWYwLTRlYzMtYjRkZi05MjNkZjRhZDJiOTciLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzc1NDYzNTYwLCJpYXQiOjE3NzU0NTk5NjAsImVtYWlsIjoiYXJpZkBnbWFpbC5jb20iLCJwaG9uZSI6IiIsImFwcF9tZXRhZGF0YSI6eyJwcm92aWRlciI6ImtleWNsb2FrIiwicHJvdmlkZXJzIjpbImtleWNsb2FrIl19LCJ1c2VyX21ldGFkYXRhIjp7ImN1c3RvbV9jbGFpbXMiOnsiZmFtaWx5X25hbWUiOiJNdWgiLCJnaXZlbl9uYW1lIjoiQXJpZiIsInByZWZlcnJlZF91c2VybmFtZSI6ImFyaWYiLCJyb2xlIjoicGF0aWVudCJ9LCJlbWFpbCI6ImFyaWZAZ21haWwuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImZ1bGxfbmFtZSI6IkFyaWYgTXVoIiwiaXNzIjoiaHR0cDovL2hvc3QuZG9ja2VyLmludGVybmFsOjgwODAvcmVhbG1zL2NsYWltbHkiLCJuYW1lIjoiQXJpZiBNdWgiLCJwaG9uZV92ZXJpZmllZCI6ZmFsc2UsInByb3ZpZGVyX2lkIjoiNDNlZmU1ZTUtZTdlOS00YjA3LTljMTItNzQzN2NkOTgyMjFmIiwic3ViIjoiNDNlZmU1ZTUtZTdlOS00YjA3LTljMTItNzQzN2NkOTgyMjFmIn0sInJvbGUiOiJhdXRoZW50aWNhdGVkIiwiYWFsIjoiYWFsMSIsImFtciI6W3sibWV0aG9kIjoib2F1dGgiLCJ0aW1lc3RhbXAiOjE3NzU0NTk5NjB9XSwic2Vzc2lvbl9pZCI6IjlhNmVlMzExLWQ2MWUtNGMyZC05MTNkLTI2NDNmOTFkMzc2YSIsImlzX2Fub255bW91cyI6ZmFsc2V9.pRvsHEW3hVVzw1CKOrHQDiXW7mhD090DO0nPUh5rd5uwbvXe1lfzDARWKDin49Q0idiEEvu_Gp8L8XGMGZnSPQ",
+        "token_type": "bearer",
+        "expires_in": 3600,
+        "expires_at": 1775463560,
+        "refresh_token": "dju5qppqvpol",
+        "user": {
+            "id": "5c786a53-85f0-4ec3-b4df-923df4ad2b97",
+            "aud": "authenticated",
+            "role": "authenticated",
+            "email": "arif@gmail.com",
+            "email_confirmed_at": "2026-04-06T06:39:16.380445Z",
+            "phone": "",
+            "confirmed_at": "2026-04-06T06:39:16.380445Z",
+            "last_sign_in_at": "2026-04-06T07:19:20.739153606Z",
+            "app_metadata": {
+                "provider": "keycloak",
+                "providers": [
+                    "keycloak"
+                ]
+            },
+            "user_metadata": {
+                "custom_claims": {
+                    "family_name": "Muh",
+                    "given_name": "Arif",
+                    "preferred_username": "arif",
+                    "role": "patient"
+                },
+                "email": "arif@gmail.com",
+                "email_verified": true,
+                "full_name": "Arif Muh",
+                "iss": "http://host.docker.internal:8080/realms/claimly",
+                "name": "Arif Muh",
+                "phone_verified": false,
+                "provider_id": "43efe5e5-e7e9-4b07-9c12-7437cd98221f",
+                "sub": "43efe5e5-e7e9-4b07-9c12-7437cd98221f"
+            },
+            "identities": [
+                {
+                    "identity_id": "8e45da90-8bc7-4df6-8fb4-acbb5991da60",
+                    "id": "43efe5e5-e7e9-4b07-9c12-7437cd98221f",
+                    "user_id": "5c786a53-85f0-4ec3-b4df-923df4ad2b97",
+                    "identity_data": {
+                        "custom_claims": {
+                            "family_name": "Muh",
+                            "given_name": "Arif",
+                            "preferred_username": "arif",
+                            "role": "patient"
+                        },
+                        "email": "arif@gmail.com",
+                        "email_verified": true,
+                        "full_name": "Arif Muh",
+                        "iss": "http://host.docker.internal:8080/realms/claimly",
+                        "name": "Arif Muh",
+                        "phone_verified": false,
+                        "provider_id": "43efe5e5-e7e9-4b07-9c12-7437cd98221f",
+                        "sub": "43efe5e5-e7e9-4b07-9c12-7437cd98221f"
+                    },
+                    "provider": "keycloak",
+                    "last_sign_in_at": "2026-04-06T06:39:16.375381Z",
+                    "created_at": "2026-04-06T06:39:16.375407Z",
+                    "updated_at": "2026-04-06T07:19:20.578188Z",
+                    "email": "arif@gmail.com"
+                }
+            ],
+            "created_at": "2026-04-06T06:39:16.363541Z",
+            "updated_at": "2026-04-06T07:19:20.741353Z",
+            "is_anonymous": false
+        },
+        "provider_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJCSkVZZl9nQmkyRDFReW5yZG1ueThlTnYyZm14cExZRzdxSk42RFdkaFBjIn0.eyJleHAiOjE3NzU0NjAyMTIsImlhdCI6MTc3NTQ1OTkxMiwiYXV0aF90aW1lIjoxNzc1NDU5OTEyLCJqdGkiOiIzODdjOWViZS1mYzAwLTRjYzgtYTc0ZS05NGZiYWQwN2M2ZGQiLCJpc3MiOiJodHRwOi8vaG9zdC5kb2NrZXIuaW50ZXJuYWw6ODA4MC9yZWFsbXMvY2xhaW1seSIsImF1ZCI6WyJjbGFpbWx5LXN1cGFiYXNlIiwiYWNjb3VudCJdLCJzdWIiOiI0M2VmZTVlNS1lN2U5LTRiMDctOWMxMi03NDM3Y2Q5ODIyMWYiLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJjbGFpbWx5LXN1cGFiYXNlIiwic2lkIjoiODdjYTc3NjEtYTYxYi00NzU4LTg4OTYtMGUyNWM0YjM2NWNjIiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwOi8vMTI3LjAuMC4xOjU0MzIxIiwiaHR0cDovL2hvc3QuZG9ja2VyLmludGVybmFsOjU0MzIxIl0sInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJwYXRpZW50IiwiZGVmYXVsdC1yb2xlcy1jbGFpbWx5Iiwib2ZmbGluZV9hY2Nlc3MiLCJ1bWFfYXV0aG9yaXphdGlvbiJdfSwicmVzb3VyY2VfYWNjZXNzIjp7ImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoib3BlbmlkIGVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwicm9sZSI6InBhdGllbnQiLCJuYW1lIjoiQXJpZiBNdWgiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJhcmlmIiwiZ2l2ZW5fbmFtZSI6IkFyaWYiLCJmYW1pbHlfbmFtZSI6Ik11aCIsImVtYWlsIjoiYXJpZkBnbWFpbC5jb20ifQ.PfDu9P3GeOaZkF9GwDiequaX2-Z4HvzhXCqrJ_9rOlB5m7lGZ1ZmOXv0yjOM_z8S0wGS9pPkBNse-S0TZF1O3qxqPgLUheogdjK1_ydR64MrcWVRiRMLmXCyY8_Eq7K_x7TQ34W7GYy56TW1xUvWkg2Wb6kmtkKuoIwy7Wo_HLvVqBMxL_Oz3UEJVdK9NHwc1GvDfWUmuLl_ACr3eCgKL0M5IatMBxdNA1zv10TU6b9r9ouApaXHdvYcKWeskY8hMhlNrsp6tMDjfr2WmBSXZ2OhL9I70vAQ94DQ0JAjsaOrUgBPxVsRnbbzh03MnEdb72pwVXS0n0C_3XyhdAaZwQ",
+        "provider_refresh_token": "eyJhbGciOiJIUzUxMiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICIzM2JiNTliZS02MzRmLTQ3NmMtODIzNS1jNDExYzVmYmE5Y2EifQ.eyJleHAiOjE3NzU0NjE3MTIsImlhdCI6MTc3NTQ1OTkxMiwianRpIjoiZWNiZmFiZDgtY2Q0Yi00NDk5LWE3N2QtZjIyOGE2MzViZDNiIiwiaXNzIjoiaHR0cDovL2hvc3QuZG9ja2VyLmludGVybmFsOjgwODAvcmVhbG1zL2NsYWltbHkiLCJhdWQiOiJodHRwOi8vaG9zdC5kb2NrZXIuaW50ZXJuYWw6ODA4MC9yZWFsbXMvY2xhaW1seSIsInN1YiI6IjQzZWZlNWU1LWU3ZTktNGIwNy05YzEyLTc0MzdjZDk4MjIxZiIsInR5cCI6IlJlZnJlc2giLCJhenAiOiJjbGFpbWx5LXN1cGFiYXNlIiwic2lkIjoiODdjYTc3NjEtYTYxYi00NzU4LTg4OTYtMGUyNWM0YjM2NWNjIiwic2NvcGUiOiJvcGVuaWQgd2ViLW9yaWdpbnMgcm9sZXMgYmFzaWMgZW1haWwgYWNyIHByb2ZpbGUifQ.KJB1R9JTFoynaYXoitjJoTbkKOCZtQNZSDlL4R7STlrMqxzWGXeOjiJ-UAVugmJgUUUMA8-ovUaQKsPhbjBr4A"
+    },
+    "user": {
+        "id": "5c786a53-85f0-4ec3-b4df-923df4ad2b97",
+        "aud": "authenticated",
+        "role": "authenticated",
+        "email": "arif@gmail.com",
+        "email_confirmed_at": "2026-04-06T06:39:16.380445Z",
+        "phone": "",
+        "confirmed_at": "2026-04-06T06:39:16.380445Z",
+        "last_sign_in_at": "2026-04-06T07:19:20.739153606Z",
+        "app_metadata": {
+            "provider": "keycloak",
+            "providers": [
+                "keycloak"
+            ]
+        },
+        "user_metadata": {
+            "custom_claims": {
+                "family_name": "Muh",
+                "given_name": "Arif",
+                "preferred_username": "arif",
+                "role": "patient"
+            },
+            "email": "arif@gmail.com",
+            "email_verified": true,
+            "full_name": "Arif Muh",
+            "iss": "http://host.docker.internal:8080/realms/claimly",
+            "name": "Arif Muh",
+            "phone_verified": false,
+            "provider_id": "43efe5e5-e7e9-4b07-9c12-7437cd98221f",
+            "sub": "43efe5e5-e7e9-4b07-9c12-7437cd98221f"
+        },
+        "identities": [
+            {
+                "identity_id": "8e45da90-8bc7-4df6-8fb4-acbb5991da60",
+                "id": "43efe5e5-e7e9-4b07-9c12-7437cd98221f",
+                "user_id": "5c786a53-85f0-4ec3-b4df-923df4ad2b97",
+                "identity_data": {
+                    "custom_claims": {
+                        "family_name": "Muh",
+                        "given_name": "Arif",
+                        "preferred_username": "arif",
+                        "role": "patient"
+                    },
+                    "email": "arif@gmail.com",
+                    "email_verified": true,
+                    "full_name": "Arif Muh",
+                    "iss": "http://host.docker.internal:8080/realms/claimly",
+                    "name": "Arif Muh",
+                    "phone_verified": false,
+                    "provider_id": "43efe5e5-e7e9-4b07-9c12-7437cd98221f",
+                    "sub": "43efe5e5-e7e9-4b07-9c12-7437cd98221f"
+                },
+                "provider": "keycloak",
+                "last_sign_in_at": "2026-04-06T06:39:16.375381Z",
+                "created_at": "2026-04-06T06:39:16.375407Z",
+                "updated_at": "2026-04-06T07:19:20.578188Z",
+                "email": "arif@gmail.com"
+            }
+        ],
+        "created_at": "2026-04-06T06:39:16.363541Z",
+        "updated_at": "2026-04-06T07:19:20.741353Z",
+        "is_anonymous": false
+    },
+    "redirectType": null
+}

@@ -501,6 +501,27 @@ COMMENT ON FUNCTION "public"."save_user_keypair"("p_public_key" "text", "p_encry
 
 
 
+CREATE OR REPLACE FUNCTION "public"."sync_user_metadata_to_auth"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+    UPDATE auth.users
+    SET raw_user_meta_data = 
+        COALESCE(raw_user_meta_data, '{}'::jsonb) || 
+        jsonb_build_object(
+            'role', NEW.role,
+            'institution_id', NEW.institution_id,
+            'full_name', NEW.full_name
+        )
+    WHERE id = NEW.id;
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."sync_user_metadata_to_auth"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."update_claim_after_proof_insert"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -1018,6 +1039,10 @@ CREATE INDEX "idx_users_role" ON "public"."users" USING "btree" ("role");
 
 
 CREATE INDEX "idx_zkp_proofs_claim_id" ON "public"."zkp_proofs" USING "btree" ("claim_id");
+
+
+
+CREATE OR REPLACE TRIGGER "on_user_profile_update" AFTER UPDATE ON "public"."users" FOR EACH ROW WHEN ((("old"."role" IS DISTINCT FROM "new"."role") OR ("old"."institution_id" IS DISTINCT FROM "new"."institution_id") OR ("old"."full_name" IS DISTINCT FROM "new"."full_name"))) EXECUTE FUNCTION "public"."sync_user_metadata_to_auth"();
 
 
 
@@ -1642,6 +1667,12 @@ GRANT ALL ON FUNCTION "public"."rls_auto_enable"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."save_user_keypair"("p_public_key" "text", "p_encrypted_priv_key" "text", "p_key_derivation_salt" "text", "p_key_iv" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."save_user_keypair"("p_public_key" "text", "p_encrypted_priv_key" "text", "p_key_derivation_salt" "text", "p_key_iv" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."save_user_keypair"("p_public_key" "text", "p_encrypted_priv_key" "text", "p_key_derivation_salt" "text", "p_key_iv" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."sync_user_metadata_to_auth"() TO "anon";
+GRANT ALL ON FUNCTION "public"."sync_user_metadata_to_auth"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."sync_user_metadata_to_auth"() TO "service_role";
 
 
 

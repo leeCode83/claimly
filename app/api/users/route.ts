@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
         const limit = parseInt(searchParams.get('limit') || '10');
 
         const userService = new UserService(supabase);
-        const role = user.user_metadata?.role;
+        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
         
         // Authorization: hanya admin
         if (role !== 'admin') {

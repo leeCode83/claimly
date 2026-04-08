@@ -143,11 +143,98 @@ export const usePatients = (token?: string | null) => {
         }
     };
 
+    /**
+     * Fetch a paginated list of policies for a specific patient.
+     * @param patientId Patient UUID
+     * @param params { page, limit }
+     */
+    const getPatientPolicies = useCallback(async (patientId: string, params?: { page?: number; limit?: number }) => {
+        setIsLoading(true);
+        try {
+            const url = new URL(`/api/patients/${patientId}/policies`, window.location.origin);
+            if (params?.page) url.searchParams.append("page", params.page.toString());
+            if (params?.limit) url.searchParams.append("limit", params.limit.toString());
+
+            const response = await fetch(url.toString(), {
+                headers: getHeaders(false),
+            });
+            const result = await response.json();
+
+            if (!response.ok) throw new Error(result.error || "Gagal mengambil daftar policy pasien");
+            return result;
+        } catch (error: any) {
+            console.error("[usePatients.getPatientPolicies] Error:", error.message);
+            throw error;
+        } finally {
+            setIsLoading(false);
+        }
+    }, [token]);
+
+    /**
+     * Fetch a specific patient policy.
+     * @param patientId Patient UUID
+     * @param patientPolicyId Patient Policy UUID
+     */
+    const getPatientPolicy = useCallback(async (patientId: string, patientPolicyId: string) => {
+        setIsLoading(true);
+        try {
+            const response = await fetch(`/api/patients/${patientId}/policies/${patientPolicyId}`, {
+                headers: getHeaders(false),
+            });
+            const result = await response.json();
+
+            if (!response.ok) throw new Error(result.error || "Gagal mengambil detail policy pasien");
+            return result.data;
+        } catch (error: any) {
+            console.error("[usePatients.getPatientPolicy] Error:", error.message);
+            throw error;
+        } finally {
+            setIsLoading(false);
+        }
+    }, [token]);
+
+    /**
+     * Add a new policy to a patient.
+     * @param patientId Patient UUID
+     * @param payload Policy registration data
+     */
+    const addPatientPolicy = async (patientId: string, payload: any) => {
+        setIsLoading(true);
+        try {
+            const response = await fetch(`/api/patients/${patientId}/policies`, {
+                method: "POST",
+                headers: getHeaders(true),
+                body: JSON.stringify(payload),
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                const message = result.error || "Gagal menambahkan policy pada pasien.";
+                toast.error("Registrasi Policy Gagal", { description: message });
+                throw new Error(message);
+            }
+
+            toast.success("Policy Pasien Ditambahkan", {
+                description: "Pasien telah berhasil didaftarkan ke polis baru.",
+            });
+
+            return result.data;
+        } catch (error: any) {
+            throw error;
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     return {
         isLoading,
         getPatients,
         getPatient,
         registerPatient,
         updatePatient,
+        getPatientPolicies,
+        getPatientPolicy,
+        addPatientPolicy,
     };
 };
