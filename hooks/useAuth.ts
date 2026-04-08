@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
 import { generateUserKeypairInBrowser } from "@/lib/crypto/browser-crypto";
@@ -13,6 +13,13 @@ export const useAuth = (token?: string | null) => {
     const [isLoading, setIsLoading] = useState(false);
     const [localToken, setLocalToken] = useState<string | null>(null);
     const accessToken = token || localToken;
+
+    // // Log the access token for debugging purposes
+    // useEffect(() => {
+    //     if (accessToken) {
+    //         console.log("[useAuth] Access Token successfully retrieved:", accessToken);
+    //     }
+    // }, [accessToken]);
 
     /**
      * Authenticate a user with Keycloak OIDC.
