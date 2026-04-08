@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        const role = user.user_metadata?.role;
+        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
         if (role !== 'insurance_reviewer') {
             return NextResponse.json({ error: 'Forbidden: Hanya insurance_reviewer yang dapat membuat polis' }, { status: 403 });
         }

@@ -44,8 +44,8 @@ export async function GET(
         const params = await props.params;
         const patientId = params.id;
 
-        const role = user.user_metadata?.role;
-        const institution_id = user.user_metadata?.institution_id;
+        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
+        const institution_id = (user.user_metadata?.custom_claims?.institution_id || user.user_metadata?.institution_id);
 
         const patientService = new PatientService(supabase);
         const patient = await patientService.getPatientById(patientId);
@@ -82,8 +82,8 @@ export async function POST(
         const params = await props.params;
         const patientId = params.id;
 
-        const role = user.user_metadata?.role;
-        const institution_id = user.user_metadata?.institution_id;
+        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
+        const institution_id = (user.user_metadata?.custom_claims?.institution_id || user.user_metadata?.institution_id);
 
         const patientService = new PatientService(supabase);
 

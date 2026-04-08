@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
-import { encryptNoteInBrowser } from "@/lib/crypto/browser-crypto";
+import { encryptNoteInBrowser, decryptNoteInBrowser } from "@/lib/crypto/browser-crypto";
 
 /**
  * Hook to handle medical records operations.
@@ -66,6 +66,7 @@ export const useMedicalRecords = (token?: string | null) => {
                 headers: getHeaders(false),
             });
             const result = await response.json();
+            console.log(result)
 
             if (!response.ok) {
                 throw new Error(result.error || `Gagal mengambil data rekam medis ${id}`);
@@ -181,11 +182,57 @@ export const useMedicalRecords = (token?: string | null) => {
         }
     };
 
+    /**
+     * Fully decrypt a medical record's note in the browser.
+     * This handles both private key unwrapping and note decryption.
+     * @param record The medical record object containing notes_encrypted
+     * @param userData User object containing security keys (encrypted_priv_key, salt, iv)
+     * @param password User's plaintext password for key derivation
+     */
+    const decryptMedicalRecord = async (record: any, userData: any, password: string) => {
+        if (!password) {
+            throw new Error("Password wajib diisi");
+        }
+        
+        // Supports both prefixed (p_*) and non-prefixed property names from API
+        const encryptedPrivKey = userData?.encrypted_priv_key || userData?.p_encrypted_priv_key;
+        const salt = userData?.key_derivation_salt || userData?.p_key_derivation_salt;
+        const iv = userData?.key_iv || userData?.p_key_iv;
+
+        if (!encryptedPrivKey) {
+            throw new Error("Kunci keamanan belum di-setup. Silakan cek tab Keamanan profil Anda.");
+        }
+
+        if (!record?.notes_encrypted) {
+            throw new Error("Tidak ada catatan terenkripsi untuk rekam medis ini.");
+        }
+
+        setIsLoading(true);
+        try {
+            // decryptNoteInBrowser handles both PBKDF2 key derivation and ECIES decryption
+            const plaintext = await decryptNoteInBrowser(
+                encryptedPrivKey,
+                salt,
+                iv,
+                password,
+                record.notes_encrypted
+            );
+            return plaintext;
+        } catch (error: any) {
+            console.error("[useMedicalRecords.decryptMedicalRecord] Error:", error.message);
+            // Specific message for cryptographic failure (usually wrong password)
+            throw new Error("Gagal membuka catatan. Pastikan password keamanan Anda benar.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     return {
         isLoading,
         getMedicalRecords,
         getMedicalRecord,
         createMedicalRecord,
         updateMedicalRecord,
+        decryptMedicalRecord,
     };
 };

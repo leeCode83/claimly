@@ -13,6 +13,7 @@ export async function enqueueVerification(
     claimId: string,
     source: VerificationSource = "submit"
 ): Promise<void> {
+    console.log(`[Queue] Job Enqueued: ${claimId}`);
     await verificationQueue.add("verify-zkp", { claimId, source });
-    // console.log(`[Queue] Enqueued ZKP verification: ${claimId} (source: ${source})`);
+    console.log(`[Queue] Enqueued ZKP verification: ${claimId} (source: ${source})`);
 }

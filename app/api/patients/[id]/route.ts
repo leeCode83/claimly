@@ -48,10 +48,12 @@ export async function GET(
         const params = await props.params;
         const id = params.id;
 
-        const userService = new UserService(supabase);
         const patientService = new PatientService(supabase);
 
-        const requesterProfile = await userService.getMe(user.id);
+        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
+        const institution_id = (user.user_metadata?.custom_claims?.institution_id || user.user_metadata?.institution_id);
+
+        const requesterProfile = { role, institution_id };
 
         // Ambil data pasien dulu untuk pengecekan akses
         const patient = await patientService.getPatientById(id);
@@ -81,10 +83,12 @@ export async function PATCH(
         const id = params.id;
         const body = await request.json();
 
-        const userService = new UserService(supabase);
         const patientService = new PatientService(supabase);
 
-        const requesterProfile = await userService.getMe(user.id);
+        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
+        const institution_id = (user.user_metadata?.custom_claims?.institution_id || user.user_metadata?.institution_id);
+
+        const requesterProfile = { role, institution_id };
         const patient = await patientService.getPatientById(id);
 
         const accessError = await checkPatientAccess(user.id, requesterProfile as unknown as Profile, patient as unknown as Patient);
