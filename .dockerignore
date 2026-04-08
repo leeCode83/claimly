@@ -1,0 +1,16 @@
+node_modules
+.next
+out
+build
+.git
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose.yml
+docker-entrypoint.sh
+.env.local
+.env.*.local
+*.test.ts
+*.test.js
+jest.config.js
+README.md
