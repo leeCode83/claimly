@@ -1,0 +1,105 @@
+# =============================================================================
+# DOCKERIGNORE FOR CLAIMLY
+# =============================================================================
+# File ini mengecualikan file yang tidak diperlukan saat Docker build
+# Tujuan: memperkecil image size dan mempercepat build
+# =============================================================================
+
+# =============================================================================
+# GIT & VERSION CONTROL
+# =============================================================================
+.git
+.gitignore
+
+# =============================================================================
+# NODE MODULES
+# =============================================================================
+# Akan diinstall ulang saat build di container
+node_modules
+node_modules_cache
+
+# =============================================================================
+# NEXT.JS BUILD ARTIFACTS
+# =============================================================================
+# .next TIDAK di-ignore karena kita salin hasil build lokal ke Docker
+# .next-cache di-ignore karena tidak diperlukan
+# .next
+.next-cache
+
+# =============================================================================
+# TEST & COVERAGE
+# =============================================================================
+coverage
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+__tests__
+jest.config.ts
+
+# =============================================================================
+# ENVIRONMENT FILES
+# =============================================================================
+# .env.docker di-whitelist agar bisa disalin ke image sebagai config runtime
+# File lain yang mengandung secrets tetap di-ignore
+.env
+.env.local
+.env.development
+.env.production
+.env.staging
+# .env.docker <-- WHITELIST: diperlukan Dockerfile untuk COPY ke container
+.env.example
+
+# =============================================================================
+# IDE & EDITOR
+# =============================================================================
+.idea
+.vscode
+*.swp
+*.swo
+*.sublime-*
+
+# =============================================================================
+# DOCKER FILES
+# =============================================================================
+# Tidak perlu dalam build context
+docker-compose.yml
+docker-compose.override.yml
+docker-compose.*.yml
+Dockerfile
+.dockerignore
+
+# =============================================================================
+# DOKUMENTASI
+# =============================================================================
+README.md
+LICENSE
+CHANGELOG.md
+docs/
+
+# =============================================================================
+# LAIN-LAIN
+# =============================================================================
+# Logs & cache
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+*.temp
+
+# TypeScript cache
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Supabase (sudah ada di container lain)
+supabase/
+!supabase/migrations/
+!supabase/seed.sql
+
+# Workers scripts (bisa diinclude jika perlu)
+# workers/
