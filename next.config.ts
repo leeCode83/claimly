@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
 
   // output: 'standalone' -> membuat folder terpisah yang hanya berisi file yang
   // diperlukan untuk production. Ini memperkecil ukuran image Docker.
-  output: 'standalone',
+  output: 'standalone'
 };
 
 export default nextConfig;

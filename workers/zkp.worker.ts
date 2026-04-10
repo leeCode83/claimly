@@ -46,7 +46,9 @@ export const zkpWorker = new Worker(
   },
   { 
     connection,
-    concurrency: 4 // Menggunakan 4 CPU sesuai instruksi
+    concurrency: 4, // Menggunakan 4 CPU sesuai instruksi
+    lockDuration: 300000,
+    lockRenewTime: 150000
   }
 );
 
