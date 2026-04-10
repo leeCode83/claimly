@@ -111,6 +111,9 @@ Layanan chatbot medis yang dibangun dengan privasi sebagai prioritas:
 
 ---
 
+
+---
+
 ## 5. Fitur Lainnya
 
 *   **Role-Based Access Control (RBAC)**: Pemisahan akses ketat untuk Pasien, Staf RS, dan Reviewer Asuransi.
@@ -120,4 +123,131 @@ Layanan chatbot medis yang dibangun dengan privasi sebagai prioritas:
 
 ---
 
+## 6. Cara Menjalankan Proyek
+
+### Prasyarat
+
+Pastikan sudah terinstall di mesin Anda:
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (termasuk Docker Compose)
+- [Node.js 20+](https://nodejs.org/)
+- [Supabase CLI](https://supabase.com/docs/guides/cli) — untuk menjalankan Supabase lokal
+
+### 6.1 Menjalankan Secara Lokal (Development)
+
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Salin file environment dan isi nilai yang sesuai
+cp .env.example .env.local
+
+# 3. Jalankan Supabase lokal
+supabase start
+
+# 4. Jalankan Redis (menggunakan Docker)
+docker run -d --name redis-stack -p 6379:6379 redis/redis-stack-server:latest
+
+# 5. Jalankan aplikasi
+npm run dev
+```
+
+Aplikasi berjalan di `http://localhost:3000`.
+
+---
+
+### 6.2 Menjalankan dengan Docker
+
+Pendekatan ini menjalankan Next.js di dalam container Docker, sementara Supabase, Redis, dan Keycloak tetap berjalan sebagai container terpisah yang terhubung melalui Docker network.
+
+#### Langkah 1 — Siapkan Service Eksternal
+
+Pastikan container berikut sudah berjalan sebelum build:
+- **Supabase**: `supabase start` (atau jalankan stack Supabase via Docker Compose)
+- **Redis**: `docker run -d --name redis-stack -p 6379:6379 redis/redis-stack-server:latest`
+- **Keycloak**: Pastikan container Keycloak sudah berjalan
+
+#### Langkah 2 — Buat Docker Network
+
+```powershell
+docker network create claimly_network
+```
+
+Kemudian hubungkan semua service ke network tersebut:
+
+```powershell
+docker network connect claimly_network redis-stack
+docker network connect claimly_network supabase_kong_claimly
+docker network connect claimly_network keycloak
+```
+
+#### Langkah 3 — Konfigurasi Environment
+
+```powershell
+# Salin file example dan isi dengan nilai yang sesuai
+cp .env.example .env.docker
+```
+
+Edit `.env.docker` dan sesuaikan nilai berikut:
+
+| Variabel | Nilai untuk Docker |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | `http://host.docker.internal:54321` |
+| `NEXT_PUBLIC_KEYCLOAK_URL` | `http://host.docker.internal:8080` |
+| `REDIS_URL` | `redis://redis-stack:6379` |
+| `REDIS_HOST` | `redis-stack` |
+
+> **Catatan**: `host.docker.internal` adalah hostname khusus Docker Desktop (Windows/Mac) yang mengarah ke mesin host. Ini memungkinkan URL yang sama bekerja dari dalam container maupun dari browser.
+
+#### Langkah 4 — Build dan Jalankan
+
+```powershell
+# Build Next.js menggunakan .env.docker
+npm run build:docker
+
+# Build Docker image
+docker-compose build claimly
+
+# Jalankan container
+docker-compose up -d claimly
+```
+
+#### Langkah 5 — Verifikasi
+
+```powershell
+# Cek status container
+docker-compose ps
+
+# Lihat log aplikasi
+docker-compose logs -f claimly
+```
+
+Jika berhasil, log akan menampilkan:
+```
+claimly-1 | ▲ Next.js 16.2.1
+claimly-1 | ✓ Ready in Xms
+claimly-1 | [Instrumentation] ZKP Verification Queue initialized and ready.
+claimly-1 | ✅ Connected to Redis
+```
+
+Aplikasi dapat diakses di `http://localhost:3000`.
+
+#### Perintah Umum
+
+```powershell
+# Hentikan container
+docker-compose down
+
+# Hentikan dan hapus volume
+docker-compose down -v
+
+# Rebuild setelah ada perubahan kode
+npm run build:docker && docker-compose build claimly && docker-compose up -d claimly
+
+# Lihat log realtime
+docker-compose logs -f claimly
+```
+
+---
+
 © 2026 Claimly - Built for Privacy and Security.
+
