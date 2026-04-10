@@ -2,9 +2,10 @@
 # DOCKER COMPOSE FOR CLAIMLY
 # =============================================================================
 # Penjelasan:
-# - Ini HANYA untuk container Next.js (Claimly frontend)
+# - Ini HANYA untuk container Next.js (Claimly frontend) dan Worker
 # - Supabase, Redis, dan Keycloak menggunakan container yang SUDAH ADA
-# - Kita menggunakan "external" network untuk terhubung ke service yang sudah berjalan
+# - Semua secrets dibaca dari .env.docker (tidak pernah hardcoded di sini)
+# - File ini AMAN untuk di-commit ke Git
 # =============================================================================
 
 services:
@@ -15,69 +16,23 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    
+
     # Port mapping - accessible dari host
     ports:
       - "3000:3000"
-    
-    # Environment variables - sesuaikan dengan konfigurasi Anda
-    environment:
-      # --- App URLs ---
-      # NEXT_PUBLIC_: variable yang accessible di browser/client
-      NEXT_PUBLIC_APP_URL: http://localhost:3000
-      
-      # Keycloak & Supabase (untuk browser/client)
-      NEXT_PUBLIC_KEYCLOAK_URL: http://localhost:8080
-      NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
-      
-      # Chatbot WebSocket (service chatbot terpisah di port 8000)
-      NEXT_PUBLIC_CHATBOT_WS_URL: ws://host.docker.internal:8000/ws/chat
-      
-      # --- Internal URLs (untuk komunikasi antar container) ---
-      # Gunakan nama service/container untuk komunikasi internal Docker
-      SUPABASE_INTERNAL_URL: http://supabase_kong_claimly:8000
-      KEYCLOAK_INTERNAL_URL: http://keycloak:8080
-      
-      # --- Redis ---
-      # Nama container: redis-stack
-      REDIS_HOST: redis-stack
-      REDIS_PORT: "6379"
-      REDIS_URL: redis://redis-stack:6379
-      
-      # --- Database ---
-      # Menggunakan Supabase DB yang sudah ada
-      DATABASE_URL: postgresql://postgres:postgres@supabase_db_claimly:5432/postgres
-      POSTGRES_PASSWORD: postgres
-      
-      # --- Supabase Keys & Config ---
-      NEXT_PUBLIC_SUPABASE_KEY: ${NEXT_PUBLIC_SUPABASE_KEY:-sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-sb_secret_N7UND0UgjKTVK-Uodkm0Hg_xSvEMPvz}
-      
-      # --- Keycloak Config ---
-      KEYCLOAK_CLIENT_ID: claimly-supabase
-      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-coPgfKMf2JjEMqwRZxGJ8DIhLC0LIX5J}
-      
-      # --- Rate Limit (Upstash Redis) ---
-      # Opsional: jika ingin gunakan Upstash cloud, isi credentials
-      # Jika ingin gunakan Redis lokal, commentbaris ini
-      UPSTASH_REDIS_REST_URL: ${UPSTASH_REDIS_REST_URL:-}
-      UPSTASH_REDIS_REST_TOKEN: ${UPSTASH_REDIS_REST_TOKEN:-}
-      
-      # --- Internal Secrets ---
-      SECRET_KEY_BASE: super-secret-key-base-for-realtime-at-least-64-chars-long-abcdefg
-      JWT_SECRET: super-secret-jwt-key-with-at-least-32-characters-long
-      
-      # --- Config ---
-      NEXT_TELEMETRY_DISABLED: "1"
-      NODE_ENV: production
-    
+
+    # Semua environment variables (termasuk secrets) dibaca dari .env.docker
+    # File ini ada di .gitignore dan tidak pernah masuk ke Git
+    env_file:
+      - .env.docker
+
     # Networking - gunakan network yang sama dengan Supabase/Keycloak
     networks:
       - claimly_network
-    
+
     # Restart policy - restart container jika crash
     restart: unless-stopped
-    
+
     # Healthcheck - pastikan container healthy sebelum serving
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000"]
@@ -85,18 +40,31 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    
-    # volumes untuk persist jika diperlukan
-    # volumes:
-    #   - ./logs:/app/logs
+
+  # ---------------------------------------------------------------------------
+  # CLAIMLY ZKP WORKER
+  # ---------------------------------------------------------------------------
+  claimly-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+
+    # Secrets dan config worker juga dibaca dari .env.docker
+    env_file:
+      - .env.docker
+
+    # Networking - gunakan network yang sama
+    networks:
+      - claimly_network
+
+    # Restart policy
+    restart: unless-stopped
 
 # =============================================================================
 # NETWORKS
 # =============================================================================
-# Penjelasan network:
-# - Kita gunakan "external: true" karena Supabase/Keycloak/Redis SUDAH ADA
-# - Ini berarti network sudah dibuat sebelumnya, kita tinggal pakai
-# - Jika network belum ada,commentbaris ini dan buat manual dengan:
+# Gunakan "external: true" karena Supabase/Keycloak/Redis SUDAH ADA sebagai
+# container terpisah. Network dibuat manual sebelum menjalankan compose:
 #   docker network create claimly_network
 # =============================================================================
 networks:
@@ -106,7 +74,7 @@ networks:
 # =============================================================================
 # CATATAN PENGGUNAAN
 # =============================================================================
-# 
+#
 # SEBELUM MENJALANKAN:
 # 1. Pastikan Supabase, Redis, dan Keycloak sudah berjalan
 # 2. Buat network jika belum ada:
@@ -116,13 +84,17 @@ networks:
 #    docker network connect claimly_network supabase_db_claimly
 #    docker network connect claimly_network keycloak
 #    docker network connect claimly_network redis-stack
-# 
-# JALANKAN APPLICATION:
-#    docker-compose up --build -d
-# 
+# 4. Salin dan isi file environment:
+#    cp .env.example .env.docker
+#
+# BUILD & JALANKAN:
+#    npm run build:docker
+#    docker-compose build claimly
+#    docker-compose up -d claimly
+#
 # MELIHAT LOGS:
 #    docker-compose logs -f claimly
-# 
+#
 # STOP:
 #    docker-compose down
 #
