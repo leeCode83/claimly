@@ -1,8 +1,11 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
-import * as snarkjs from 'snarkjs';
+// snarkjs di-import secara lazy (dynamic import) di dalam setiap fungsi yang membutuhkannya.
+// Ini mencegah Turbopack meng-alias nama package saat bundle time, yang menyebabkan
+// 'Cannot find package snarkjs-<hash>' saat runtime di Docker.
 import { createClient } from '@supabase/supabase-js';
 import { GenerateProofInput, GenerateProofOutput, VerifyProofInput, VerifyProofOutput } from './types';
+
 
 // Environment detection - check inline or via function for best practice and testability
 // const isBrowser = typeof window !== 'undefined';
@@ -97,6 +100,9 @@ export async function generateProof(
     const wasmPath = input.artifacts?.wasm_url || await ensureArtifact('insurance_claim.wasm');
     const zkeyPath = input.artifacts?.zkey_url || await ensureArtifact('insurance_claim.zkey');
 
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    const snarkjs = await import('snarkjs');
     const { proof, publicSignals } = await snarkjs.groth16.fullProve(
       snarkjsInput,
       wasmPath,
@@ -123,6 +129,9 @@ export async function verifyProof(
     vKey = JSON.parse(fs.readFileSync(vkeyPath, 'utf-8'));
   }
 
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  const snarkjs = await import('snarkjs');
   const isValid = await snarkjs.groth16.verify(
     vKey as any,
     input.publicSignals,

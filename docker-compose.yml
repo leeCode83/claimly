@@ -1,75 +1,101 @@
+# =============================================================================
+# DOCKER COMPOSE FOR CLAIMLY
+# =============================================================================
+# Penjelasan:
+# - Ini HANYA untuk container Next.js (Claimly frontend) dan Worker
+# - Supabase, Redis, dan Keycloak menggunakan container yang SUDAH ADA
+# - Semua secrets dibaca dari .env.docker (tidak pernah hardcoded di sini)
+# - File ini AMAN untuk di-commit ke Git
+# =============================================================================
+
 services:
-  app:
-    build: .
+  # ---------------------------------------------------------------------------
+  # CLAIMLY FRONTEND (Next.js)
+  # ---------------------------------------------------------------------------
+  claimly:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # Port mapping - accessible dari host
     ports:
       - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/claimly?schema=public
-      - NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321 # Assuming local Supabase proxy
-      - KEYCLOAK_URL=http://keycloak:8080
-    depends_on:
-      redis:
-        condition: service_healthy
-      db:
-        condition: service_healthy
-      keycloak:
-        condition: service_started
-    networks:
-      - claimly-network
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    # Semua environment variables (termasuk secrets) dibaca dari .env.docker
+    # File ini ada di .gitignore dan tidak pernah masuk ke Git
+    env_file:
+      - .env.docker
+
+    # Networking - gunakan network yang sama dengan Supabase/Keycloak
+    networks:
+      - claimly_network
+
+    # Restart policy - restart container jika crash
+    restart: unless-stopped
+
+    # Healthcheck - pastikan container healthy sebelum serving
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - claimly-network
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
-  db:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=claimly
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - claimly-network
+  # ---------------------------------------------------------------------------
+  # CLAIMLY ZKP WORKER
+  # ---------------------------------------------------------------------------
+  claimly-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
 
-  keycloak:
-    image: quay.io/keycloak/keycloak:24.0.0
-    command: start-dev
-    environment:
-      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
-      - KC_BOOTSTRAP_ADMIN_PASSWORD=admin
-      - KC_DB=postgres
-      - KC_DB_URL=jdbc:postgresql://db:5432/keycloak
-      - KC_DB_USERNAME=postgres
-      - KC_DB_PASSWORD=postgres
-    ports:
-      - "8080:8080"
-    depends_on:
-      db:
-        condition: service_healthy
-    networks:
-      - claimly-network
+    # Secrets dan config worker juga dibaca dari .env.docker
+    env_file:
+      - .env.docker
 
+    # Networking - gunakan network yang sama
+    networks:
+      - claimly_network
+
+    # Restart policy
+    restart: unless-stopped
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+# Gunakan "external: true" karena Supabase/Keycloak/Redis SUDAH ADA sebagai
+# container terpisah. Network dibuat manual sebelum menjalankan compose:
+#   docker network create claimly_network
+# =============================================================================
 networks:
-  claimly-network:
-    driver: bridge
+  claimly_network:
+    external: true
 
-volumes:
-  postgres_data:
+# =============================================================================
+# CATATAN PENGGUNAAN
+# =============================================================================
+#
+# SEBELUM MENJALANKAN:
+# 1. Pastikan Supabase, Redis, dan Keycloak sudah berjalan
+# 2. Buat network jika belum ada:
+#    docker network create claimly_network
+# 3. Hubungkan container yang sudah ada ke network:
+#    docker network connect claimly_network supabase_kong_claimly
+#    docker network connect claimly_network supabase_db_claimly
+#    docker network connect claimly_network keycloak
+#    docker network connect claimly_network redis-stack
+# 4. Salin dan isi file environment:
+#    cp .env.example .env.docker
+#
+# BUILD & JALANKAN:
+#    npm run build:docker
+#    docker-compose build claimly
+#    docker-compose up -d claimly
+#
+# MELIHAT LOGS:
+#    docker-compose logs -f claimly
+#
+# STOP:
+#    docker-compose down
+#
+# =============================================================================

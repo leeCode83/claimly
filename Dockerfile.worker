@@ -1,0 +1,66 @@
+# =============================================================================
+# DOCKERFILE FOR CLAIMLY ZKP WORKER
+# =============================================================================
+# Penjelasan:
+# - Worker memproses antrean ZKP verification dari Redis
+# - Build dilakukan di lokal terlebih dahulu
+# - Menggunakan tsx untuk jalankan TypeScript langsung
+# =============================================================================
+
+# =============================================================================
+# STAGE 1: Dependencies
+# - Install node_modules untuk production runtime
+# =============================================================================
+FROM node:20-alpine AS deps
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json package-lock.json ./
+
+# Install dependencies (termasuk devDependencies karena butuh tsx)
+RUN npm ci --legacy-peer-deps
+
+# =============================================================================
+# STAGE 2: Production Runner
+# - Menyalin file yang diperlukan untuk menjalankan worker
+# =============================================================================
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+# Set environment untuk production
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Ubah user dari root ke node (best practice untuk security)
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nodejs
+
+# Copy package files untuk dependencies
+COPY --from=deps /app/node_modules ./node_modules
+
+# =============================================================================
+# Copy file yang diperlukan untuk worker
+# =============================================================================
+# - TypeScript source files (karena jalankan dengan tsx)
+# - .env.docker sebagai environment
+COPY tsconfig.json ./
+COPY scripts ./scripts
+COPY workers ./workers
+COPY service ./service
+COPY lib ./lib
+COPY types ./types
+COPY .env.docker ./.env.production
+
+# Set ownership ke node user
+RUN chown nodejs:nodejs /app
+
+# Switch ke user nodejs
+USER nodejs
+
+# =============================================================================
+# Command untuk menjalankan worker launcher
+# =============================================================================
+# worker-launcher.ts akan fork worker processes sesuai CPU count
+CMD ["npx", "tsx", "scripts/worker-launcher.ts"]

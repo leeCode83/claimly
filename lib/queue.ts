@@ -8,6 +8,15 @@ const connection = new Redis({
   maxRetriesPerRequest: null,
 });
 
+// Menangani error koneksi agar tidak men-terminate proses (terutama saat build)
+connection.on('error', (err) => {
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    // Abaikan error koneksi saat build
+    return;
+  }
+  console.error('[Redis Connection Error]:', err.message);
+});
+
 export const QUEUE_NAME = 'verification-queue';
 
 export const verificationQueue = new Queue(QUEUE_NAME, {

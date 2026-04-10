@@ -1,49 +1,79 @@
-# --- Base Stage ---
-FROM node:20-alpine AS base
-RUN apk add --no-cache libc6-compat
+# =============================================================================
+# DOCKERFILE FOR CLAIMLY - Using Local Build
+# =============================================================================
+# Penjelasan:
+# - Build dilakukan di lokal (host machine) terlebih dahulu
+# - Docker hanya menyalin hasil build dari lokal
+# - Ini menghindari error karena Redis/Supabase tidak tersedia saat build
+# =============================================================================
+
+# =============================================================================
+# STAGE 1: Dependencies
+# - Install node_modules untuk production runtime
+# =============================================================================
+FROM node:20-alpine AS deps
+
 WORKDIR /app
 
-# --- Dependencies Stage ---
-FROM base AS deps
+# Copy package files
 COPY package.json package-lock.json ./
-RUN npm ci
 
-# --- Builder Stage ---
-FROM base AS builder
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-# Disable telemetry during build
-ENV NEXT_TELEMETRY_DISABLED 1
-RUN npm run build
+# Install dependencies (hanya production dependencies)
+RUN npm ci --omit=dev --legacy-peer-deps
 
-# --- Runner Stage ---
-FROM base AS runner
+# =============================================================================
+# STAGE 2: Production Runner
+# - Hanya menyalin file yang sudah di-build dari lokal
+# - Tidak perlu build di dalam container
+# =============================================================================
+FROM node:20-alpine AS runner
+
 WORKDIR /app
 
-ENV NODE_ENV production
-ENV NEXT_TELEMETRY_DISABLED 1
+# Set environment untuk production
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
-# Create a non-root user
+# Ubah user dari root ke node (best practice untuk security)
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Copy essential files for both Next.js and Workers
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/scripts ./scripts
-COPY --from=builder /app/next.config.ts ./next.config.ts
+# Copy package files untuk dependencies
+COPY --from=deps /app/node_modules ./node_modules
 
-# Copy startup script
-COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
+# =============================================================================
+# Copy hasil build dari lokal
+# ============================================================================
+# File-file ini dihasilkan dari `npm run build:docker` di host machine:
+# - .next/standalone/    : Next.js production build (standalone mode)
+# - .next/static/        : Static assets
+# - public/             : Static public files
+# - scripts/             : Worker scripts (jika ada)
+# - .env.docker         : Environment variables dari lokal
+# =============================================================================
+COPY .next/standalone ./
+COPY .next/static ./.next/static
+COPY public ./public
+COPY .env.docker ./.env.production
 
+# Copy snarkjs dari deps stage ke dalam standalone/node_modules
+# Diperlukan karena snarkjs ada di serverExternalPackages (tidak di-bundle),
+# sehingga Next.js standalone tidak otomatis menyertakannya.
+COPY --from=deps /app/node_modules/snarkjs ./node_modules/snarkjs
+
+# Copy scripts jika ada ( Workers )
+COPY --chown=nextjs:nodejs scripts ./scripts
+
+# Set ownership ke nextjs user
+RUN chown nextjs:nodejs /app
+
+
+# Switch ke user nextjs (tidak bisa akses root)
 USER nextjs
 
+# Expose port 3000 (default Next.js)
 EXPOSE 3000
 
-ENV PORT 3000
-ENV HOSTNAME "0.0.0.0"
-
-ENTRYPOINT ["./docker-entrypoint.sh"]
+# Command untuk menjalankan Next.js
+# server.js ada di folder standalone
+CMD ["node", "server.js"]

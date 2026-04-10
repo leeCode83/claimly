@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { ClaimService } from "@/service/claim/claim.service";
+export const dynamic = 'force-dynamic';
+
 
 export async function GET(
     request: NextRequest,
