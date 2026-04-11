@@ -166,26 +166,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logoutLocal = async () => {
     setIsLoading(true);
     try {
-        await fetch("/api/auth/signout", {
+        const response = await fetch("/api/auth/signout", {
             method: "POST",
             headers: { "Content-Type": "application/json" }
         });
         
+        const result = await response.json();
+        const logoutUrl = result.logoutUrl;
+        
+        // 1. Clear Context State
         setAccessToken(null);
         setUser(null);
+        
+        // 2. Clear LocalStorage
         localStorage.removeItem("claimly_token");
         localStorage.removeItem("claimly_user");
+        
+        // 3. Clear Cookies (Broad match for Supabase/Keycloak relative cookies)
+        const cookiesList = document.cookie.split(';');
+        for (const cookie of cookiesList) {
+            const cookieName = cookie.split('=')[0].trim();
+            const prefixes = ['sb-', 'gotrue-', 'supabase-'];
+            if (prefixes.some(p => cookieName.startsWith(p))) {
+                // Hapus cookie di root path
+                document.cookie = `${cookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+                // Hapus cookie di current hostname domain
+                document.cookie = `${cookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=${window.location.hostname}`;
+            }
+        }
+
+        // 4. Force Supabase Auth SignOut (Client-side)
+        // Ini memastikan internal memory di browser-client benar-benar kosong.
+        const { createBrowserClient } = await import('@supabase/ssr');
+        const supabase = createBrowserClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_KEY!
+        );
+        await supabase.auth.signOut();
         
         toast.success("Berhasil Keluar", {
             description: "Sesi Anda telah diakhiri secara menyeluruh."
         });
 
-        window.location.href = "/auth";
+        // 5. Redirect ke Keycloak Logout (Front-channel)
+        // Jika API tidak provide URL, fallback ke /auth
+        if (logoutUrl) {
+            window.location.href = logoutUrl;
+        } else {
+            window.location.href = "/auth";
+        }
     } catch (error) {
         console.error("[AuthContext.logoutLocal] Error:", error);
+        toast.error("Gagal Logout", { description: "Terjadi kesalahan sistem." });
         setIsLoading(false);
     }
   }
+
 
   return (
     <AuthContext.Provider
