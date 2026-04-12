@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { MedicalRecordService } from "@/service/medical-record/medical-record.service";
+import redis, { invalidateCache } from "@/lib/redis";
 
 export async function GET(
     request: NextRequest,
@@ -26,9 +27,23 @@ export async function GET(
         }
 
         const medicalRecordService = new MedicalRecordService(supabase);
+
+        const cacheKey = `medical-record:${id}`;
+        const cachedData = await redis.get(cacheKey);
+
+        if (cachedData) {
+            return NextResponse.json({
+                message: "Berhasil mengambil detail rekam medis",
+                data: JSON.parse(cachedData)
+            }, { status: 200 });
+        }
+
         // Method name corresponds to service definition (no second argument)
         const data = await medicalRecordService.getMedicalRecordById(id);
         
+        // Cache for 10 minutes
+        await redis.set(cacheKey, JSON.stringify(data), 'EX', 600);
+
         return NextResponse.json({
             message: "Berhasil mengambil detail rekam medis",
             data
@@ -40,7 +55,7 @@ export async function GET(
     }
 }
 
-export async function PUT(
+export async function PATCH(
     request: NextRequest,
     props: { params: Promise<{ id: string }> }
 ) {
@@ -67,6 +82,10 @@ export async function PUT(
         const medicalRecordService = new MedicalRecordService(supabase);
         // Payload has notes and patientId (optional) for encryption
         const data = await medicalRecordService.updateMedicalRecord(id, body);
+
+        // Invalidate cache
+        await invalidateCache('medical-records');
+        await redis.del(`medical-record:${id}`);
 
         return NextResponse.json({
             message: "Rekam medis berhasil diperbarui",

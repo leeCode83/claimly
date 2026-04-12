@@ -182,7 +182,7 @@ export class PatientService {
     async getPatientPolicyById(patientId: string, patientPolicyId: string) {
         const { data, error } = await this.supabase
             .from('patient_policies')
-            .select('*, insurance_policies:policy_id(*)')
+            .select('*, insurance_policies:policy_id(id, policy_name, valid_from, valid_until, is_active)')
             .eq('id', patientPolicyId)
             .eq('patient_id', patientId)
             .single();

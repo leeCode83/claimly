@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { ClaimService } from "@/service/claim/claim.service";
+import { invalidateCache } from "@/lib/redis";
+import redis from "@/lib/redis";
 export const dynamic = 'force-dynamic';
 
 
@@ -25,6 +27,11 @@ export async function PATCH(
 
         const claimService = new ClaimService(supabase);
         const result = await claimService.approveClaim(claimId, user.id, reviewNotes);
+
+        // Invalidate cache
+        await invalidateCache('claims');
+        await redis.del(`claim:${claimId}`);
+        await invalidateCache('audit-logs');
 
         return NextResponse.json({
             message: "Klaim berhasil disetujui",

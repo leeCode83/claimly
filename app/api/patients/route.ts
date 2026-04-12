@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { PatientService } from "@/service/patient/patient.service";
+import redis, { invalidateCache } from "@/lib/redis";
 
 export async function GET(request: NextRequest) {
     try {
@@ -24,7 +25,21 @@ export async function GET(request: NextRequest) {
         const search = searchParams.get('search') || '';
 
         const patientService = new PatientService(supabase);
+
+        const cacheKey = `patients:inst=${institution_id}:page=${page}:limit=${limit}:search=${search || 'none'}`;
+        const cachedData = await redis.get(cacheKey);
+
+        if (cachedData) {
+            return NextResponse.json({
+                message: "Berhasil mengambil daftar pasien",
+                ...JSON.parse(cachedData)
+            }, { status: 200 });
+        }
+
         const result = await patientService.getPatients({ hospitalId: institution_id, page, limit, search });
+
+        // Cache for 15 minutes
+        await redis.set(cacheKey, JSON.stringify(result), 'EX', 900);
 
         return NextResponse.json({
             message: "Berhasil mengambil daftar pasien",
@@ -57,6 +72,9 @@ export async function POST(request: NextRequest) {
 
         const patientService = new PatientService(supabase);
         const data = await patientService.createPatient(body, user.id, institution_id);
+
+        // Invalidate cache
+        await invalidateCache('patients');
 
         return NextResponse.json({
             message: "Pasien berhasil didaftarkan",

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { UserService } from "@/service/user/user.service";
 import { PatientService } from "@/service/patient/patient.service";
+import redis, { invalidateCache } from "@/lib/redis";
 
 interface Profile {
     role: string;
@@ -55,8 +56,18 @@ export async function GET(
 
         const requesterProfile = { role, institution_id };
 
-        // Ambil data pasien dulu untuk pengecekan akses
-        const patient = await patientService.getPatientById(id);
+        const cacheKey = `patient:${id}`;
+        let patient = null;
+        const cachedData = await redis.get(cacheKey);
+
+        if (cachedData) {
+            patient = JSON.parse(cachedData);
+        } else {
+            // Ambil data pasien dari DB jika tidak ada di cache
+            patient = await patientService.getPatientById(id);
+            // Cache for 15 minutes
+            await redis.set(cacheKey, JSON.stringify(patient), 'EX', 900);
+        }
 
         const accessError = await checkPatientAccess(user.id, requesterProfile as unknown as Profile, patient as unknown as Patient);
         if (accessError) {
@@ -97,6 +108,10 @@ export async function PATCH(
         }
 
         const data = await patientService.updatePatient(id, body);
+
+        // Invalidate cache
+        await invalidateCache('patients');
+        await redis.del(`patient:${id}`);
 
         return NextResponse.json({
             message: "Data pasien berhasil diupdate",

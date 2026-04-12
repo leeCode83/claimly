@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { PatientService } from "@/service/patient/patient.service";
+import redis, { invalidateCache } from "@/lib/redis";
 
 interface Profile {
     role: string;
@@ -58,7 +59,20 @@ export async function GET(
         const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : undefined;
         const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
 
+        const cacheKey = `patient:${patientId}:policies:page=${page || 1}:limit=${limit || 10}`;
+        const cachedData = await redis.get(cacheKey);
+
+        if (cachedData) {
+            return NextResponse.json({
+                message: `Berhasil mengambil daftar polis untuk pasien ini`,
+                ...JSON.parse(cachedData)
+            }, { status: 200 });
+        }
+
         const result = await patientService.getPatientPolicies(patientId, { page, limit });
+
+        // Cache for 15 minutes
+        await redis.set(cacheKey, JSON.stringify(result), 'EX', 900);
 
         return NextResponse.json({
             message: `Berhasil mengambil daftar polis untuk pasien ini`,
@@ -103,6 +117,10 @@ export async function POST(
 
         const body = await request.json();
         const data = await patientService.createPatientPolicy(patientId, body);
+
+        // Invalidate cache
+        await invalidateCache(`patient:${patientId}:policies`);
+        await invalidateCache(`user:`); // My profiles policies might change
 
         return NextResponse.json({
             message: 'Pasien berhasil didaftarkan ke polis',

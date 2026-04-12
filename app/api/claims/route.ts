@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { ClaimService } from "@/service/claim/claim.service";
+import redis, { invalidateCache } from "@/lib/redis";
 export const dynamic = 'force-dynamic';
 
 
@@ -18,7 +19,21 @@ export async function GET(request: NextRequest) {
         const search = searchParams.get('search') || undefined;
 
         const claimService = new ClaimService(supabase);
+
+        const cacheKey = `claims:page=${page}:limit=${limit}:sort=${sortBy}:${sortDir}:status=${status || 'all'}:search=${search || 'none'}`;
+        const cachedData = await redis.get(cacheKey);
+
+        if (cachedData) {
+            return NextResponse.json({
+                message: "Berhasil mengambil daftar klaim",
+                ...JSON.parse(cachedData)
+            }, { status: 200 });
+        }
+
         const result = await claimService.getClaims({ page, limit, sortBy, sortDir, status, search });
+
+        // Cache for 5 minutes
+        await redis.set(cacheKey, JSON.stringify(result), 'EX', 300);
 
         return NextResponse.json({
             message: "Berhasil mengambil daftar klaim",
@@ -47,6 +62,9 @@ export async function POST(request: NextRequest) {
 
         const claimService = new ClaimService(supabase);
         const data = await claimService.submitClaim(body, user.id);
+
+        // Invalidate cache
+        await invalidateCache('claims');
 
         return NextResponse.json({
             message: "Klaim berhasil diajukan dengan ZKP proof dari client",

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { PolicyService } from "@/service/policy/policy.service";
-import redis from "@/lib/redis";
+import redis, { invalidateCache } from "@/lib/redis";
 
 export async function GET(request: NextRequest){
     try {
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest){
 
         if (cachedData) {
             return NextResponse.json({
-                message: `Berhasil mengambil daftar polis (from cache)`,
+                message: `Berhasil mengambil daftar polis`,
                 ...JSON.parse(cachedData)
             }, { status: 200 });
         }
@@ -61,6 +61,9 @@ export async function POST(request: NextRequest) {
         
         const policyService = new PolicyService(supabase);
         const data = await policyService.createPolicy(user.id, body);
+
+        // Invalidate cache
+        await invalidateCache('policies');
 
         return NextResponse.json({
             message: 'Policy created successfully',

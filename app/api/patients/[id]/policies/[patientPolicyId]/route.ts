@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { UserService } from "@/service/user/user.service";
 import { PatientService } from "@/service/patient/patient.service";
+import redis from "@/lib/redis";
 
 interface Profile {
     role: string;
@@ -54,9 +55,19 @@ export async function GET(
         const accessError = checkPatientAccess(user.id, requesterProfile as unknown as Profile, patient as unknown as Patient);
         if (accessError) return NextResponse.json({ error: accessError }, { status: 403 });
 
-        const data = await patientService.getPatientPolicyById(patientId, patientPolicyId);
+        const cacheKey = `patient-policy:${patientPolicyId}`;
+        let patientPolicy = null;
+        const cachedData = await redis.get(cacheKey);
 
-        return NextResponse.json({ data }, { status: 200 });
+        if (cachedData) {
+            patientPolicy = JSON.parse(cachedData);
+        } else {
+            patientPolicy = await patientService.getPatientPolicyById(patientId, patientPolicyId);
+            // Cache for 15 minutes
+            await redis.set(cacheKey, JSON.stringify(patientPolicy), 'EX', 900);
+        }
+
+        return NextResponse.json({ data: patientPolicy }, { status: 200 });
 
     } catch (err) {
         const error = err as Error & { status?: number };

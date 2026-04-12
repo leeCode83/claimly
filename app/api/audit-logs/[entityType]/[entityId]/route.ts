@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { AuditLogService } from "@/service/audit-log/audit-log.service";
+import redis from "@/lib/redis";
 
 export async function GET(
     request: NextRequest,
@@ -28,7 +29,21 @@ export async function GET(
         const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
 
         const auditLogService = new AuditLogService(supabase);
+
+        const cacheKey = `audit-logs:${entityType}:${entityId}:page=${page || 1}:limit=${limit || 20}`;
+        const cachedData = await redis.get(cacheKey);
+
+        if (cachedData) {
+            return NextResponse.json({
+                message: `Berhasil mengambil audit log untuk ${entityType} dengan id ${entityId}`,
+                ...JSON.parse(cachedData),
+            }, { status: 200 });
+        }
+
         const result = await auditLogService.getAuditLogsByEntity(entityType, entityId, { page, limit });
+
+        // Cache for 5 minutes
+        await redis.set(cacheKey, JSON.stringify(result), 'EX', 300);
 
         return NextResponse.json({
             message: `Berhasil mengambil audit log untuk ${entityType} dengan id ${entityId}`,

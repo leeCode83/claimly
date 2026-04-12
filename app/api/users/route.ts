@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { UserService } from "@/service/user/user.service";
+import redis from "@/lib/redis";
 
 export async function GET(request: NextRequest) {
     try {
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
         const page = parseInt(searchParams.get('page') || '1');
         const limit = parseInt(searchParams.get('limit') || '10');
 
-        const userService = new UserService(supabase);
+        // const userService = new UserService(supabase);
         const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
         
         // Authorization: hanya admin
@@ -22,7 +23,22 @@ export async function GET(request: NextRequest) {
              return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 
+        const userService = new UserService(supabase);
+
+        const cacheKey = `users:page=${page}:limit=${limit}`;
+        const cachedData = await redis.get(cacheKey);
+
+        if (cachedData) {
+            return NextResponse.json({
+                message: "Berhasil mengambil daftar user",
+                ...JSON.parse(cachedData)
+            }, { status: 200 });
+        }
+
         const result = await userService.getUsers({ page, limit });
+
+        // Cache for 15 minutes
+        await redis.set(cacheKey, JSON.stringify(result), 'EX', 900);
 
         return NextResponse.json({
             message: "Berhasil mengambil daftar user",

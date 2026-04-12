@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { ClaimService } from "@/service/claim/claim.service";
+import redis, { invalidateCache } from "@/lib/redis";
 export const dynamic = 'force-dynamic';
 
 
@@ -23,6 +24,11 @@ export async function POST(
 
         const claimService = new ClaimService(supabase);
         const result = await claimService.requestVerification(claimId);
+
+        // Invalidate cache
+        await invalidateCache('claims');
+        await redis.del(`claim:${claimId}`);
+        await redis.del(`claim:${claimId}:proof`);
 
         const isAlreadyVerified = result.status === "already_verified";
         return NextResponse.json({
