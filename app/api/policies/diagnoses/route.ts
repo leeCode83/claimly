@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { DiagnosesService } from "@/service/diagnoses/diagnoses.service";
-import redis from "@/lib/redis";
+import redis, { invalidateCache } from "@/lib/redis";
 
 export async function POST(request: NextRequest) {
     try {
@@ -16,6 +16,9 @@ export async function POST(request: NextRequest) {
 
         const diagnosesService = new DiagnosesService(supabase);
         const result = await diagnosesService.createDiagnosis(body);
+
+        // Invalidate cache
+        await invalidateCache('diagnoses');
 
         return NextResponse.json({ 
             message: "Diagnosa berhasil ditambahkan",
@@ -49,7 +52,7 @@ export async function GET(request: NextRequest){
 
         if (cachedData) {
             return NextResponse.json({
-                message: `Berhasil mengambil daftar diagnosa (from cache)`,
+                message: `Berhasil mengambil daftar diagnosa`,
                 ...JSON.parse(cachedData)
             }, { status: 200 });
         }

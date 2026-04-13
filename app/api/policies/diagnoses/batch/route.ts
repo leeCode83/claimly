@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { DiagnosesService } from "@/service/diagnoses/diagnoses.service";
+import { invalidateCache } from "@/lib/redis";
 
 export async function POST(request: NextRequest) {
     try {
@@ -34,6 +35,9 @@ export async function POST(request: NextRequest) {
 
         const diagnosesService = new DiagnosesService(supabase);
         const result = await diagnosesService.processBatchDiagnoses(fileText);
+
+        // Invalidate cache
+        await invalidateCache('diagnoses');
 
         return NextResponse.json({ 
             message: `Berhasil menambahkan ${result.inserted_count} diagnosa secara batch`,

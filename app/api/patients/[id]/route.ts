@@ -1,41 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
-import { UserService } from "@/service/user/user.service";
 import { PatientService } from "@/service/patient/patient.service";
-
-interface Profile {
-    role: string;
-    institution_id?: string;
-}
-
-interface Patient {
-    hospital_id: string;
-    user_id: string | null;
-}
-
-// Helper: cek apakah requester berhak mengakses data pasien ini
-async function checkPatientAccess(requesterUserId: string, requesterProfile: Profile, patient: Patient): Promise<string | null> {
-    if (requesterProfile.role === 'hospital_staff') {
-        // hospital_staff hanya bisa akses pasien dari institusinya
-        if (patient.hospital_id !== requesterProfile.institution_id) {
-            return 'Forbidden: Anda hanya dapat mengakses pasien dari institusi Anda';
-        }
-        return null; // ok
-    }
-
-    if (requesterProfile.role === 'patient') {
-        // Pasien yang mengakses datanya sendiri harus sudah memiliki akun (user_id tidak null)
-        if (patient.user_id === null) {
-            return 'Akses ditolak: Akun pasien ini belum terhubung ke user. Pasien perlu mendaftar akun terlebih dahulu.';
-        }
-        if (patient.user_id !== requesterUserId) {
-            return 'Forbidden: Anda hanya dapat mengakses data pasien milik Anda sendiri';
-        }
-        return null; // ok
-    }
-
-    return 'Forbidden';
-}
+import redis, { invalidateCache } from "@/lib/redis";
+import { extractUserProfile, checkPatientAccess } from "@/lib/api-auth";
+import { Patient } from "@/types/auth";
 
 export async function GET(
     request: NextRequest,
@@ -49,16 +17,22 @@ export async function GET(
         const id = params.id;
 
         const patientService = new PatientService(supabase);
+        const requesterProfile = extractUserProfile(user);
 
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
-        const institution_id = (user.user_metadata?.custom_claims?.institution_id || user.user_metadata?.institution_id);
+        const cacheKey = `patient:${id}`;
+        let patient = null;
+        const cachedData = await redis.get(cacheKey);
 
-        const requesterProfile = { role, institution_id };
+        if (cachedData) {
+            patient = JSON.parse(cachedData);
+        } else {
+            // Ambil data pasien dari DB jika tidak ada di cache
+            patient = await patientService.getPatientById(id);
+            // Cache for 15 minutes
+            await redis.set(cacheKey, JSON.stringify(patient), 'EX', 900);
+        }
 
-        // Ambil data pasien dulu untuk pengecekan akses
-        const patient = await patientService.getPatientById(id);
-
-        const accessError = await checkPatientAccess(user.id, requesterProfile as unknown as Profile, patient as unknown as Patient);
+        const accessError = await checkPatientAccess(user.id, requesterProfile, patient as unknown as Patient);
         if (accessError) {
             return NextResponse.json({ error: accessError }, { status: 403 });
         }
@@ -85,18 +59,19 @@ export async function PATCH(
 
         const patientService = new PatientService(supabase);
 
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
-        const institution_id = (user.user_metadata?.custom_claims?.institution_id || user.user_metadata?.institution_id);
-
-        const requesterProfile = { role, institution_id };
+        const requesterProfile = extractUserProfile(user);
         const patient = await patientService.getPatientById(id);
 
-        const accessError = await checkPatientAccess(user.id, requesterProfile as unknown as Profile, patient as unknown as Patient);
+        const accessError = await checkPatientAccess(user.id, requesterProfile, patient as unknown as Patient);
         if (accessError) {
             return NextResponse.json({ error: accessError }, { status: 403 });
         }
 
         const data = await patientService.updatePatient(id, body);
+
+        // Invalidate cache
+        await invalidateCache('patients');
+        await redis.del(`patient:${id}`);
 
         return NextResponse.json({
             message: "Data pasien berhasil diupdate",

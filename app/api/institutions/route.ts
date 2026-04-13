@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { InstitutionService } from "@/service/institution/institution.service";
-import redis from "@/lib/redis";
+import redis, { invalidateCache } from "@/lib/redis";
 
 export async function GET(request: NextRequest) {
     try {
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
 
         if (cachedData) {
             return NextResponse.json({
-                message: `Berhasil mengambil daftar institusi (from cache)`,
+                message: `Berhasil mengambil daftar institusi`,
                 ...JSON.parse(cachedData)
             }, { status: 200 });
         }
@@ -56,6 +56,9 @@ export async function POST(request: NextRequest) {
 
         const institutionService = new InstitutionService(supabase);
         const data = await institutionService.createInstitution(body);
+
+        // Invalidate cache
+        await invalidateCache('institutions');
 
         return NextResponse.json({ 
             message: "Institution successfully added",

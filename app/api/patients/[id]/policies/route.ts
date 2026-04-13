@@ -1,37 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
+import { PolicyService } from "@/service/policy/policy.service";
 import { PatientService } from "@/service/patient/patient.service";
-
-interface Profile {
-    role: string;
-    institution_id?: string;
-}
-
-interface Patient {
-    hospital_id: string;
-    user_id: string | null;
-}
-
-function checkPatientAccess(requesterUserId: string, requesterProfile: Profile, patient: Patient): string | null {
-    if (requesterProfile.role === 'hospital_staff') {
-        if (patient.hospital_id !== requesterProfile.institution_id) {
-            return 'Forbidden: Anda hanya dapat mengakses pasien dari institusi Anda';
-        }
-        return null;
-    }
-
-    if (requesterProfile.role === 'patient') {
-        if (patient.user_id === null) {
-            return 'Akses ditolak: Akun pasien ini belum terhubung ke user. Pasien perlu mendaftar akun terlebih dahulu.';
-        }
-        if (patient.user_id !== requesterUserId) {
-            return 'Forbidden: Anda hanya dapat mengakses data pasien milik Anda sendiri';
-        }
-        return null;
-    }
-
-    return 'Forbidden';
-}
+import redis, { invalidateCache } from "@/lib/redis";
+import { extractUserProfile, checkPatientAccess } from "@/lib/api-auth";
+import { Patient } from "@/types/auth";
 
 export async function GET(
     request: NextRequest,
@@ -42,28 +15,21 @@ export async function GET(
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
         const params = await props.params;
-        const patientId = params.id;
-
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
-        const institution_id = (user.user_metadata?.custom_claims?.institution_id || user.user_metadata?.institution_id);
+        const id = params.id;
 
         const patientService = new PatientService(supabase);
-        const patient = await patientService.getPatientById(patientId);
+        const requesterProfile = extractUserProfile(user);
 
-        const requesterProfile = { role, institution_id };
-        const accessError = checkPatientAccess(user.id, requesterProfile as unknown as Profile, patient as unknown as Patient);
-        if (accessError) return NextResponse.json({ error: accessError }, { status: 403 });
+        const patient = await patientService.getPatientById(id);
 
-        const searchParams = request.nextUrl.searchParams;
-        const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : undefined;
-        const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
+        const accessError = await checkPatientAccess(user.id, requesterProfile, patient as unknown as Patient);
+        if (accessError) {
+            return NextResponse.json({ error: accessError }, { status: 403 });
+        }
 
-        const result = await patientService.getPatientPolicies(patientId, { page, limit });
+        const policies = await patientService.getPatientPolicies(id);
 
-        return NextResponse.json({
-            message: `Berhasil mengambil daftar polis untuk pasien ini`,
-            ...result
-        }, { status: 200 });
+        return NextResponse.json({ data: policies }, { status: 200 });
 
     } catch (err) {
         const error = err as Error & { status?: number };
@@ -80,32 +46,26 @@ export async function POST(
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
         const params = await props.params;
-        const patientId = params.id;
-
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
-        const institution_id = (user.user_metadata?.custom_claims?.institution_id || user.user_metadata?.institution_id);
+        const id = params.id;
+        const body = await request.json();
 
         const patientService = new PatientService(supabase);
+        const requesterProfile = extractUserProfile(user);
 
-        // Hanya hospital_staff yang boleh mendaftarkan pasien ke polis
-        if (role !== 'hospital_staff') {
-            return NextResponse.json(
-                { error: 'Forbidden: Hanya hospital_staff yang dapat mendaftarkan pasien ke polis' },
-                { status: 403 }
-            );
+        const patient = await patientService.getPatientById(id);
+
+        const accessError = await checkPatientAccess(user.id, requesterProfile, patient as unknown as Patient);
+        if (accessError) {
+            return NextResponse.json({ error: accessError }, { status: 403 });
         }
 
-        // Pastikan hospital_staff ini dari institusi yang mengelola pasien tersebut
-        const patient = await patientService.getPatientById(patientId);
-        const requesterProfile = { role, institution_id };
-        const accessError = checkPatientAccess(user.id, requesterProfile as unknown as Profile, patient as unknown as Patient);
-        if (accessError) return NextResponse.json({ error: accessError }, { status: 403 });
+        const data = await patientService.createPatientPolicy(id, body);
 
-        const body = await request.json();
-        const data = await patientService.createPatientPolicy(patientId, body);
+        // Invalidate cache
+        await invalidateCache('policies');
 
         return NextResponse.json({
-            message: 'Pasien berhasil didaftarkan ke polis',
+            message: "Data asuransi pasien berhasil ditambahkan",
             data
         }, { status: 201 });
 

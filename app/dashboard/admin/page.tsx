@@ -13,11 +13,16 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { useInstitutions } from "@/hooks/useInstitutions"
 import { useUsers } from "@/hooks/useUsers"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useAudit } from "@/hooks/useAudit"
+import { Badge } from "@/components/ui/badge"
+import { AuditLogEntry } from "@/types/audit"
 
 export default function AdminDashboard() {
-  const { getInstitutions, getInstitution, isLoading: isInstLoading } = useInstitutions()
+  const { getInstitutions, getInstitution, createInstitution, updateInstitution: updateInst, deleteInstitution: deleteInst, isLoading: isInstLoading } = useInstitutions()
   const { getUsers, getUserById, updateUser, deleteUser, isLoading: isUserLoading } = useUsers()
+  const { getAuditLogs, isLoading: isAuditLoading } = useAudit()
   
   const [institutions, setInstitutions] = useState<any[]>([])
   const [page, setPage] = useState(1)
@@ -26,6 +31,8 @@ export default function AdminDashboard() {
   const [selectedInstitution, setSelectedInstitution] = useState<any>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
+  const [isInstEditMode, setIsInstEditMode] = useState(false)
+  const [editInstForm, setEditInstForm] = useState<any>({})
 
   const [users, setUsers] = useState<any[]>([])
   const [userPage, setUserPage] = useState(1)
@@ -35,6 +42,23 @@ export default function AdminDashboard() {
   const [isUserDetailLoading, setIsUserDetailLoading] = useState(false)
   const [isUserEditMode, setIsUserEditMode] = useState(false)
   const [editUserForm, setEditUserForm] = useState<any>({})
+
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([])
+  const [auditPage, setAuditPage] = useState(1)
+  const [auditTotalPages, setAuditTotalPages] = useState(1)
+  const [auditActionFilter, setAuditActionFilter] = useState("all")
+  const [auditEntityTypeFilter, setAuditEntityTypeFilter] = useState("all")
+  const [selectedAudit, setSelectedAudit] = useState<AuditLogEntry | null>(null)
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState(false)
+
+  const [isCreateInstModalOpen, setIsCreateInstModalOpen] = useState(false)
+  const [createInstForm, setCreateInstForm] = useState({
+    name: "",
+    type: "",         // 'hospital' | 'insurance'
+    license_number: "",
+    address: "",
+  })
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const limit = 5
 
@@ -47,6 +71,42 @@ export default function AdminDashboard() {
     fetchInstitutions(page)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page])
+
+  useEffect(() => {
+    fetchAuditLogs(auditPage)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auditPage, auditActionFilter, auditEntityTypeFilter])
+
+  const fetchAuditLogs = async (currentPage: number) => {
+    try {
+      const res = await getAuditLogs({ 
+        page: currentPage, 
+        limit: 10, 
+        action: auditActionFilter, 
+        entity_type: auditEntityTypeFilter 
+      })
+      setAuditLogs(res.data || [])
+      setAuditTotalPages(res.pagination?.total_pages || 1)
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  const getActionBadgeVariant = (action: string) => {
+    switch (action) {
+      case 'CREATE': return 'default'
+      case 'UPDATE': return 'secondary'
+      case 'DELETE': return 'destructive'
+      case 'APPROVE': return 'default' // Will add custom class for green
+      case 'REJECT': return 'destructive'
+      default: return 'outline'
+    }
+  }
+
+  const handleOpenAuditDetail = (log: AuditLogEntry) => {
+    setSelectedAudit(log)
+    setIsAuditModalOpen(true)
+  }
 
   const fetchUsers = async (currentPage: number) => {
     try {
@@ -101,6 +161,66 @@ export default function AdminDashboard() {
     }
   }
 
+
+  const handleOpenCreateInst = () => {
+    setCreateInstForm({ name: "", type: "", license_number: "", address: "" })
+    setIsCreateInstModalOpen(true)
+  }
+
+  const handleCreateInstitution = async () => {
+    setIsSubmitting(true)
+    try {
+        await createInstitution(createInstForm)
+        setIsCreateInstModalOpen(false)
+        fetchInstitutions(page) // Refresh table
+    } catch (error) {
+        console.error(error)
+    } finally {
+        setIsSubmitting(false)
+    }
+  }
+
+  const handleEditInstToggle = () => {
+    const nextMode = !isInstEditMode;
+    setIsInstEditMode(nextMode)
+    if (nextMode && selectedInstitution) {
+        setEditInstForm({
+            name: selectedInstitution.name || "",
+            type: selectedInstitution.type || "hospital",
+            license_number: selectedInstitution.license_number || "",
+            address: selectedInstitution.address || "",
+        })
+    }
+  }
+
+  const handleSaveInstitution = async () => {
+    try {
+        await updateInst(selectedInstitution.id, editInstForm)
+        setIsInstEditMode(false)
+        const updated = await getInstitution(selectedInstitution.id)
+        setSelectedInstitution(updated)
+        fetchInstitutions(page)
+    } catch (error) {
+        console.error(error)
+    }
+  }
+
+  const handleDeleteInstitution = async (id: string) => {
+    if (confirm("Apakah Anda yakin ingin menghapus institusi ini? Semua data terkait akan terpengaruh.")) {
+        try {
+            await deleteInst(id)
+            setIsDetailModalOpen(false)
+            if (institutions.length === 1 && page > 1) {
+                setPage(page - 1)
+            } else {
+                fetchInstitutions(page)
+            }
+        } catch (error) {
+            console.error(error)
+        }
+    }
+  }
+
   const handleDeleteUser = async (id: string) => {
     if (confirm("Apakah Anda yakin ingin menghapus user ini?")) {
       try {
@@ -130,6 +250,7 @@ export default function AdminDashboard() {
   const handleOpenDetail = async (id: string) => {
     setIsDetailModalOpen(true)
     setIsDetailLoading(true)
+    setIsInstEditMode(false)
     setSelectedInstitution(null)
     try {
       const inst = await getInstitution(id)
@@ -149,7 +270,7 @@ export default function AdminDashboard() {
           <p className="text-muted-foreground">Kelola pengguna sistem, institusi resmi, dan audit log.</p>
         </div>
         <div className="flex gap-2">
-            <Button variant="default" className="gap-2">
+            <Button variant="default" className="gap-2" onClick={handleOpenCreateInst}>
               <PlusIcon className="size-4" />
               Institusi Baru
             </Button>
@@ -371,18 +492,124 @@ export default function AdminDashboard() {
               <CardDescription>Riwayat aktivitas kritikal sistem.</CardDescription>
             </CardHeader>
             <CardContent>
-               <div className="rounded-md border bg-zinc-950 p-4 font-mono text-xs text-zinc-400">
-                  <div className="text-zinc-500">[2026-03-31 20:00:01] Auth: User Ale Sign In success.</div>
-                  <div className="text-zinc-500">[2026-03-31 20:05:12] ZKP: Proof CLM-0921 verified for BPJS.</div>
-                  <div className="text-zinc-500">[2026-03-31 20:10:45] Admin: Added new Institution: RS Kalbe.</div>
+               <div className="flex flex-col md:flex-row gap-4 mb-4">
+                  <div className="flex-1 overflow-hidden">
+                    <Label className="text-xs mb-1 block">Aksi</Label>
+                    <Select value={auditActionFilter} onValueChange={(val) => { setAuditActionFilter(val); setAuditPage(1); }}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Semua Aksi" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Semua Aksi</SelectItem>
+                          <SelectItem value="CREATE">CREATE</SelectItem>
+                          <SelectItem value="UPDATE">UPDATE</SelectItem>
+                          <SelectItem value="DELETE">DELETE</SelectItem>
+                          <SelectItem value="APPROVE">APPROVE</SelectItem>
+                          <SelectItem value="REJECT">REJECT</SelectItem>
+                        </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex-1 overflow-hidden">
+                    <Label className="text-xs mb-1 block">Tipe Entitas</Label>
+                    <Select value={auditEntityTypeFilter} onValueChange={(val) => { setAuditEntityTypeFilter(val); setAuditPage(1); }}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Semua Tipe" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Semua Tipe</SelectItem>
+                          <SelectItem value="claim">Claim</SelectItem>
+                          <SelectItem value="patient">Patient</SelectItem>
+                          <SelectItem value="user">User</SelectItem>
+                          <SelectItem value="institution">Institution</SelectItem>
+                          <SelectItem value="medical_record">Medical Record</SelectItem>
+                          <SelectItem value="insurance_policy">Insurance Policy</SelectItem>
+                        </SelectContent>
+                    </Select>
+                  </div>
                </div>
+
+               <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Waktu</TableHead>
+                    <TableHead>Aksi</TableHead>
+                    <TableHead>Tipe</TableHead>
+                    <TableHead>Aktor</TableHead>
+                    <TableHead className="text-right">Aksi</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {isAuditLoading ? (
+                    Array.from({ length: 5 }).map((_, i) => (
+                      <TableRow key={i}>
+                        <TableCell><Skeleton className="h-4 w-[140px]" /></TableCell>
+                        <TableCell><Skeleton className="h-5 w-[80px]" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-[120px]" /></TableCell>
+                        <TableCell className="text-right"><Skeleton className="h-8 w-16 ml-auto" /></TableCell>
+                      </TableRow>
+                    ))
+                  ) : auditLogs && auditLogs.length > 0 ? (
+                    auditLogs.map((log) => (
+                      <TableRow key={log.id}>
+                         <TableCell className="text-xs">
+                           {new Date(log.created_at).toLocaleString('id-ID')}
+                         </TableCell>
+                         <TableCell>
+                            <Badge variant={getActionBadgeVariant(log.action)} className={log.action === 'APPROVE' ? 'bg-green-600 hover:bg-green-700' : ''}>
+                              {log.action}
+                            </Badge>
+                         </TableCell>
+                         <TableCell className="capitalize text-xs">{log.entity_type}</TableCell>
+                         <TableCell className="text-xs font-medium">
+                            {log.actor?.full_name || "Sistem"}
+                         </TableCell>
+                         <TableCell className="text-right">
+                            <Button variant="outline" size="sm" onClick={() => handleOpenAuditDetail(log)}>
+                              <EyeIcon className="size-4 mr-1" />
+                              Detail
+                            </Button>
+                         </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        Belum ada data audit log.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+
+              {auditTotalPages > 1 && (
+                <div className="flex items-center justify-end space-x-2 py-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAuditPage((prev) => Math.max(prev - 1, 1))}
+                    disabled={auditPage === 1 || isAuditLoading}
+                  >
+                    Previous
+                  </Button>
+                  <div className="text-sm">Halaman {auditPage} dari {auditTotalPages}</div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAuditPage((prev) => Math.min(prev + 1, auditTotalPages))}
+                    disabled={auditPage === auditTotalPages || isAuditLoading}
+                  >
+                    Next
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
 
       <Dialog open={isDetailModalOpen} onOpenChange={setIsDetailModalOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Detail Institusi</DialogTitle>
             <DialogDescription>
@@ -398,27 +625,111 @@ export default function AdminDashboard() {
                </div>
             ) : selectedInstitution ? (
                <div className="grid gap-2 text-sm">
-                 <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2">
-                   <div className="font-semibold text-muted-foreground">ID Institusi</div>
-                   <div className="col-span-2 font-mono text-xs break-all">{selectedInstitution.id}</div>
-                 </div>
-                 <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2">
-                   <div className="font-semibold text-muted-foreground">Nama</div>
-                   <div className="col-span-2 font-medium">{selectedInstitution.name}</div>
-                 </div>
-                 <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2">
-                   <div className="font-semibold text-muted-foreground">Tipe</div>
-                   <div className="col-span-2 capitalize">{selectedInstitution.type}</div>
-                 </div>
-                 <div className="grid grid-cols-3 gap-4 pb-2 pt-2">
-                   <div className="font-semibold text-muted-foreground">Dibuat Pada</div>
-                   <div className="col-span-2">{new Date(selectedInstitution.created_at).toLocaleString()}</div>
-                 </div>
+                  <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2">
+                    <div className="font-semibold text-muted-foreground">ID Institusi</div>
+                    <div className="col-span-2 font-mono text-xs break-all">{selectedInstitution.id}</div>
+                  </div>
+
+                  {isInstEditMode ? (
+                    <>
+                      <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2 items-center">
+                        <Label className="font-semibold text-muted-foreground">Nama</Label>
+                        <div className="col-span-2">
+                          <Input 
+                            value={editInstForm.name} 
+                            onChange={(e) => setEditInstForm({...editInstForm, name: e.target.value})} 
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2 items-center">
+                        <Label className="font-semibold text-muted-foreground">Tipe</Label>
+                        <div className="col-span-2">
+                          <Select 
+                            value={editInstForm.type}
+                            onValueChange={(val) => setEditInstForm({...editInstForm, type: val})}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Pilih tipe" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="hospital">Rumah Sakit</SelectItem>
+                              <SelectItem value="insurance">Asuransi</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2 items-center">
+                        <Label className="font-semibold text-muted-foreground">No. Lisensi</Label>
+                        <div className="col-span-2">
+                          <Input 
+                            value={editInstForm.license_number} 
+                            onChange={(e) => setEditInstForm({...editInstForm, license_number: e.target.value})} 
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4 pb-2 pt-2 items-center">
+                        <Label className="font-semibold text-muted-foreground">Alamat</Label>
+                        <div className="col-span-2">
+                          <Textarea 
+                            value={editInstForm.address} 
+                            onChange={(e) => setEditInstForm({...editInstForm, address: e.target.value})} 
+                            className="min-h-[80px]"
+                          />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2">
+                        <div className="font-semibold text-muted-foreground">Nama</div>
+                        <div className="col-span-2 font-medium">{selectedInstitution.name}</div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2">
+                        <div className="font-semibold text-muted-foreground">Tipe</div>
+                        <div className="col-span-2 capitalize">{selectedInstitution.type}</div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2">
+                        <div className="font-semibold text-muted-foreground">No. Lisensi</div>
+                        <div className="col-span-2">{selectedInstitution.license_number || "-"}</div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2">
+                        <div className="font-semibold text-muted-foreground">Alamat</div>
+                        <div className="col-span-2">{selectedInstitution.address || "Tidak tersedia"}</div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4 pb-2 pt-2">
+                        <div className="font-semibold text-muted-foreground">Dibuat Pada</div>
+                        <div className="col-span-2">{new Date(selectedInstitution.created_at).toLocaleString()}</div>
+                      </div>
+                    </>
+                  )}
                </div>
             ) : (
                <div className="text-center text-muted-foreground py-4">Gagal memuat detail institusi.</div>
             )}
           </div>
+          <DialogFooter className="flex items-center sm:justify-between w-full mt-4 flex-row">
+            {selectedInstitution && !isDetailLoading && (
+              <Button 
+                variant="destructive" 
+                size="sm" 
+                onClick={() => handleDeleteInstitution(selectedInstitution.id)}
+              >
+                Hapus Institusi
+              </Button>
+            )}
+            <div className="flex gap-2 ml-auto">
+              {isInstEditMode ? (
+                <>
+                  <Button variant="ghost" size="sm" onClick={() => setIsInstEditMode(false)}>Batal</Button>
+                  <Button size="sm" onClick={handleSaveInstitution}>Simpan</Button>
+                </>
+              ) : (
+                selectedInstitution && !isDetailLoading && (
+                  <Button size="sm" onClick={handleEditInstToggle}>Edit Data</Button>
+                )
+              )}
+            </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={isUserModalOpen} onOpenChange={setIsUserModalOpen}>
@@ -525,6 +836,131 @@ export default function AdminDashboard() {
                      )
                   )}
                </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isAuditModalOpen} onOpenChange={setIsAuditModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Detail Audit Log</DialogTitle>
+            <DialogDescription>
+              Detail riwayat aktivitas yang tercatat dalam sistem.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {selectedAudit ? (
+               <div className="grid gap-2 text-sm">
+                  <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2">
+                    <div className="font-semibold text-muted-foreground">ID Event</div>
+                    <div className="col-span-2 font-mono text-xs break-all">{selectedAudit.id}</div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2">
+                    <div className="font-semibold text-muted-foreground">Waktu</div>
+                    <div className="col-span-2">{new Date(selectedAudit.created_at).toLocaleString('id-ID')}</div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2 items-center">
+                    <div className="font-semibold text-muted-foreground">Aksi</div>
+                    <div className="col-span-2">
+                       <Badge variant={getActionBadgeVariant(selectedAudit.action)} className={selectedAudit.action === 'APPROVE' ? 'bg-green-600 hover:bg-green-700' : ''}>
+                          {selectedAudit.action}
+                       </Badge>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2">
+                    <div className="font-semibold text-muted-foreground">Entitas</div>
+                    <div className="col-span-2 capitalize">
+                       {selectedAudit.entity_type} <span className="text-xs text-muted-foreground font-mono">({selectedAudit.entity_id})</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 border-b pb-2 pt-2">
+                    <div className="font-semibold text-muted-foreground">Aktor</div>
+                    <div className="col-span-2">
+                       <div className="font-medium">{selectedAudit.actor?.full_name || "Sistem"}</div>
+                       <div className="text-xs text-muted-foreground">{selectedAudit.actor?.role || "System Process"}</div>
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <div className="font-semibold text-muted-foreground mb-2">Metadata / Detail</div>
+                    <div className="bg-zinc-950 rounded-md p-4 overflow-auto max-h-[300px]">
+                      <pre className="text-xs text-zinc-400 font-mono">
+                         {JSON.stringify(selectedAudit.metadata, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+               </div>
+            ) : (
+               <div className="text-center text-muted-foreground py-4">Data tidak ditemukan.</div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsAuditModalOpen(false)}>Tutup</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isCreateInstModalOpen} onOpenChange={setIsCreateInstModalOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Tambah Institusi Baru</DialogTitle>
+            <DialogDescription>
+              Isi data institusi yang akan didaftarkan ke platform.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="name">Nama Institusi</Label>
+              <Input
+                id="name"
+                placeholder="Contoh: RS Kalbe Medika"
+                value={createInstForm.name}
+                onChange={(e) => setCreateInstForm({ ...createInstForm, name: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="type">Tipe Institusi</Label>
+              <Select
+                value={createInstForm.type}
+                onValueChange={(value) => setCreateInstForm({ ...createInstForm, type: value })}
+              >
+                <SelectTrigger id="type">
+                  <SelectValue placeholder="Pilih tipe" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="hospital">Rumah Sakit</SelectItem>
+                  <SelectItem value="insurance">Asuransi</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="license">Nomor Lisensi</Label>
+              <Input
+                id="license"
+                placeholder="Contoh: RS/LIC/2026/001"
+                value={createInstForm.license_number}
+                onChange={(e) => setCreateInstForm({ ...createInstForm, license_number: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="address">Alamat</Label>
+              <Textarea
+                id="address"
+                placeholder="Opsional — Alamat lengkap institusi"
+                value={createInstForm.address}
+                onChange={(e) => setCreateInstForm({ ...createInstForm, address: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsCreateInstModalOpen(false)}>
+              Batal
+            </Button>
+            <Button
+              onClick={handleCreateInstitution}
+              disabled={isSubmitting || !createInstForm.name || !createInstForm.type || !createInstForm.license_number}
+            >
+              {isSubmitting ? "Menyimpan..." : "Simpan"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

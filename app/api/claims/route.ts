@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { ClaimService } from "@/service/claim/claim.service";
+import redis, { invalidateCache } from "@/lib/redis";
+import { authorizeApiRequest } from "@/lib/api-auth";
 export const dynamic = 'force-dynamic';
 
 
@@ -8,6 +10,12 @@ export async function GET(request: NextRequest) {
     try {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+        const { errorResponse, institution_id } = authorizeApiRequest(user, { 
+            allowedRoles: ['hospital_staff', 'insurance_reviewer', 'patient', 'admin'],
+            requireInstitution: true
+        });
+        if (errorResponse) return errorResponse;
 
         const searchParams = request.nextUrl.searchParams;
         const page = parseInt(searchParams.get('page') || '1');
@@ -18,7 +26,21 @@ export async function GET(request: NextRequest) {
         const search = searchParams.get('search') || undefined;
 
         const claimService = new ClaimService(supabase);
+
+        const cacheKey = `claims:user=${user.id}:inst=${institution_id || 'none'}:page=${page}:limit=${limit}:sort=${sortBy}:${sortDir}:status=${status || 'all'}:search=${search || 'none'}`;
+        const cachedData = await redis.get(cacheKey);
+
+        if (cachedData) {
+            return NextResponse.json({
+                message: "Berhasil mengambil daftar klaim",
+                ...JSON.parse(cachedData)
+            }, { status: 200 });
+        }
+
         const result = await claimService.getClaims({ page, limit, sortBy, sortDir, status, search });
+
+        // Cache for 5 minutes
+        await redis.set(cacheKey, JSON.stringify(result), 'EX', 300);
 
         return NextResponse.json({
             message: "Berhasil mengambil daftar klaim",
@@ -37,16 +59,19 @@ export async function POST(request: NextRequest) {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
-
-        if (role !== 'hospital_staff') {
-            return NextResponse.json({ error: 'Forbidden: Hanya hospital_staff yang dapat mengajukan klaim' }, { status: 403 });
-        }
+        const { errorResponse } = authorizeApiRequest(user, { 
+            allowedRoles: ['hospital_staff'],
+            requireInstitution: true
+        });
+        if (errorResponse) return errorResponse;
 
         const body = await request.json();
 
         const claimService = new ClaimService(supabase);
         const data = await claimService.submitClaim(body, user.id);
+
+        // Invalidate cache
+        await invalidateCache('claims');
 
         return NextResponse.json({
             message: "Klaim berhasil diajukan dengan ZKP proof dari client",

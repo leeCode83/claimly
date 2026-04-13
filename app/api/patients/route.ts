@@ -1,22 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { PatientService } from "@/service/patient/patient.service";
+import redis, { invalidateCache } from "@/lib/redis";
+import { authorizeApiRequest } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
     try {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
-        const institution_id = (user.user_metadata?.custom_claims?.institution_id || user.user_metadata?.institution_id);
-
-        if (role !== 'hospital_staff') {
-            return NextResponse.json({ error: 'Forbidden: Hanya hospital_staff yang dapat mengakses daftar pasien' }, { status: 403 });
-        }
-
-        if (!institution_id) {
-            return NextResponse.json({ error: 'Forbidden: Akun Anda belum terhubung ke institusi manapun' }, { status: 403 });
-        }
+        const { institution_id, errorResponse } = authorizeApiRequest(user, { 
+            allowedRoles: ['hospital_staff'],
+            requireInstitution: true
+        });
+        if (errorResponse) return errorResponse;
 
         const searchParams = request.nextUrl.searchParams;
         const page = parseInt(searchParams.get('page') || '1');
@@ -24,7 +20,21 @@ export async function GET(request: NextRequest) {
         const search = searchParams.get('search') || '';
 
         const patientService = new PatientService(supabase);
-        const result = await patientService.getPatients({ hospitalId: institution_id, page, limit, search });
+
+        const cacheKey = `patients:inst=${institution_id}:page=${page}:limit=${limit}:search=${search || 'none'}`;
+        const cachedData = await redis.get(cacheKey);
+
+        if (cachedData) {
+            return NextResponse.json({
+                message: "Berhasil mengambil daftar pasien",
+                ...JSON.parse(cachedData)
+            }, { status: 200 });
+        }
+
+        const result = await patientService.getPatients({ hospitalId: institution_id as string, page, limit, search });
+
+        // Cache for 15 minutes
+        await redis.set(cacheKey, JSON.stringify(result), 'EX', 900);
 
         return NextResponse.json({
             message: "Berhasil mengambil daftar pasien",
@@ -42,21 +52,19 @@ export async function POST(request: NextRequest) {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
-        const institution_id = (user.user_metadata?.custom_claims?.institution_id || user.user_metadata?.institution_id);
-
-        if (role !== 'hospital_staff') {
-            return NextResponse.json({ error: 'Forbidden: Hanya hospital_staff yang dapat mendaftarkan pasien' }, { status: 403 });
-        }
-
-        if (!institution_id) {
-            return NextResponse.json({ error: 'Forbidden: Akun Anda belum terhubung ke institusi manapun' }, { status: 403 });
-        }
+        const { institution_id, errorResponse } = authorizeApiRequest(user, { 
+            allowedRoles: ['hospital_staff'],
+            requireInstitution: true
+        });
+        if (errorResponse) return errorResponse;
 
         const body = await request.json();
 
         const patientService = new PatientService(supabase);
-        const data = await patientService.createPatient(body, user.id, institution_id);
+        const data = await patientService.createPatient(body, user.id, institution_id as string);
+
+        // Invalidate cache
+        await invalidateCache('patients');
 
         return NextResponse.json({
             message: "Pasien berhasil didaftarkan",

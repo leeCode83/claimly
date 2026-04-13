@@ -17,8 +17,12 @@ export class AuthService {
                 redirectTo: redirectTo || callbackUrl,
                 skipBrowserRedirect: true, // Return URL instead of redirecting if called from server
                 scopes: 'openid profile email', // Explicitly request OpenID scope
+                queryParams: {
+                    prompt: 'login', // Forces Keycloak to show the login page
+                },
             }
         });
+
 
         if (error) {
             const err: any = new Error(error.message);

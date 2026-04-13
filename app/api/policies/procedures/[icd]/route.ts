@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { ProceduresService } from "@/service/procedures/procedures.service";
+import redis, { invalidateCache } from "@/lib/redis";
 
 export async function GET(
     request: NextRequest,
@@ -16,8 +17,20 @@ export async function GET(
         const params = await props.params;
         const icdCode = decodeURIComponent(params.icd);
 
+        const cacheKey = `procedure:${icdCode}`;
+        const cachedData = await redis.get(cacheKey);
+
+        if (cachedData) {
+            return NextResponse.json({ 
+                data: JSON.parse(cachedData) 
+            }, { status: 200 });
+        }
+
         const proceduresService = new ProceduresService(supabase);
         const data = await proceduresService.getProcedureByIcd(icdCode);
+
+        // Cache for 1 hour
+        await redis.set(cacheKey, JSON.stringify(data), 'EX', 3600);
 
         return NextResponse.json({ data }, { status: 200 });
     } catch (err) {
@@ -47,6 +60,10 @@ export async function PATCH(
 
         const proceduresService = new ProceduresService(supabase);
         const data = await proceduresService.updateProcedureByIcd(icdCode, body);
+
+        // Invalidate cache
+        await invalidateCache('procedures');
+        await redis.del(`procedure:${icdCode}`);
 
         return NextResponse.json({ 
             message: "Prosedur berhasil diupdate",
@@ -78,6 +95,10 @@ export async function DELETE(
 
         const proceduresService = new ProceduresService(supabase);
         const data = await proceduresService.deleteProcedureByIcd(icdCode);
+
+        // Invalidate cache
+        await invalidateCache('procedures');
+        await redis.del(`procedure:${icdCode}`);
 
         return NextResponse.json({ 
             message: "Prosedur berhasil dihapus",

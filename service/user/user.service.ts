@@ -56,15 +56,20 @@ export class UserService {
         return data;
     }
 
-    async updateUser(id: string, payload: { role?: string, institution_id?: string | null }) {
+    async updateUser(id: string, requesterId: string, payload: { full_name?: string }) {
+        if (id !== requesterId) {
+            const err: any = new Error("Forbidden: Anda hanya bisa mengupdate profil Anda sendiri");
+            err.status = 403;
+            throw err;
+        }
+
         const updateData: any = {};
-        if (payload.role !== undefined) updateData.role = payload.role;
-        if (payload.institution_id !== undefined) updateData.institution_id = payload.institution_id;
+        if (payload.full_name !== undefined) updateData.full_name = payload.full_name;
         
         if (Object.keys(updateData).length > 0) {
             updateData.updated_at = new Date().toISOString();
         } else {
-             const err: any = new Error("Body request tidak boleh kosong untuk update");
+             const err: any = new Error("Body request tidak boleh kosong untuk update (field: full_name)");
              err.status = 400;
              throw err;
         }
@@ -73,7 +78,7 @@ export class UserService {
             .from('users')
             .update(updateData)
             .eq('id', id)
-            .select('*, institution:institutions(*)')
+            .select('*, institution:institutions(id, name, type)')
             .single();
 
         if (error) {

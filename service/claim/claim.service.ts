@@ -29,14 +29,34 @@ export class ClaimService {
         status?: string,
         search?: string
     }) {
-        const { data, error } = await this.supabase.rpc('get_claims_paginated', {
-            p_page: page,
-            p_limit: limit,
-            p_sort_by: sortBy,
-            p_sort_dir: sortDir,
-            p_status: status || null,
-            p_search: search || null
-        });
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+
+        // Query untuk mengambil data claim dan nominal
+        let query = this.supabase
+            .from('claims')
+            .select(`
+                id,
+                procedure_id,
+                claim_amount,
+                submitted_at,
+                status,
+                procedures:procedure_id!inner(description, icd9_code)
+            `, { count: 'exact' });
+
+        // Filter berdasarkan status (exact match)
+        if (status) {
+            query = query.eq('status', status);
+        }
+
+        // Search berdasarkan deskripsi prosedur (sesuai implementasi sebelumnya)
+        if (search) {
+            query = query.ilike('procedures.description', `%${search}%`);
+        }
+
+        const { data, error, count } = await query
+            .order(sortBy, { ascending: sortDir === 'asc' })
+            .range(from, to);
 
         if (error) {
             const err = new Error(error.message) as AppError;
@@ -44,15 +64,27 @@ export class ClaimService {
             throw err;
         }
 
-        const total = data?.[0]?.total_count || 0;
+        // Mapping data (Disederhanakan tanpa Nama RS):
+        // 1. claim_id, 2. procedure_id, 3. claim_amount, 4. submitted_at, 5. Status, 6. procedure_code
+        const formattedData = data?.map(item => {
+            const procedure = item.procedures as any;
+            return {
+                claim_id: item.id,
+                procedure_id: item.procedure_id,
+                procedure_code: procedure?.icd9_code,
+                claim_amount: item.claim_amount,
+                submitted_at: item.submitted_at,
+                status: item.status
+            };
+        });
 
         return {
-            data,
+            data: formattedData,
             meta: {
-                total: Number(total),
+                total: Number(count || 0),
                 page,
                 limit,
-                total_pages: Math.ceil(Number(total) / limit)
+                total_pages: Math.ceil(Number(count || 0) / limit)
             }
         };
     }

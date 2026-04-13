@@ -14,12 +14,12 @@ export const useAuth = (token?: string | null) => {
     const [localToken, setLocalToken] = useState<string | null>(null);
     const accessToken = token || localToken;
 
-    // // Log the access token for debugging purposes
-    // useEffect(() => {
-    //     if (accessToken) {
-    //         console.log("[useAuth] Access Token successfully retrieved:", accessToken);
-    //     }
-    // }, [accessToken]);
+    // Log the access token for debugging purposes
+    useEffect(() => {
+        if (accessToken) {
+            console.log("[useAuth] Access Token successfully retrieved:", accessToken);
+        }
+    }, [accessToken]);
 
     /**
      * Authenticate a user with Keycloak OIDC.
@@ -73,26 +73,48 @@ export const useAuth = (token?: string | null) => {
     const signOut = async () => {
         setIsLoading(true);
         try {
-            await fetch("/api/auth/signout", {
+            const response = await fetch("/api/auth/signout", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" }
             });
             
+            const result = await response.json();
+            
             // Clear local states
             setLocalToken(null);
             
+            // Clear cookies & localStorage (Same as AuthContext for consistency)
+            localStorage.removeItem("claimly_token");
+            localStorage.removeItem("claimly_user");
+            
+            const cookiesList = document.cookie.split(';');
+            for (const cookie of cookiesList) {
+                const cookieName = cookie.split('=')[0].trim();
+                const prefixes = ['sb-', 'gotrue-', 'supabase-'];
+                if (prefixes.some(p => cookieName.startsWith(p))) {
+                    document.cookie = `${cookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+                    document.cookie = `${cookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=${window.location.hostname}`;
+                }
+            }
+
             toast.success("Berhasil Keluar", {
                 description: "Sesi Anda telah diakhiri."
             });
             
-            // Hard redirect to the auth page (or logout endpoint will be handled by Context)
-            window.location.href = "/auth";
+            // Redirect to Keycloak or /auth
+            if (result.logoutUrl) {
+                window.location.href = result.logoutUrl;
+            } else {
+                window.location.href = "/auth";
+            }
         } catch (error) {
             console.error("[useAuth.signOut] Error:", error);
+            toast.error("Gagal Logout", { description: "Terjadi kesalahan sistem." });
         } finally {
             setIsLoading(false);
         }
     };
+
 
     /**
      * Initialize ZKP cryptographic keys (Client-side generation).

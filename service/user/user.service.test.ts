@@ -59,18 +59,25 @@ describe('UserService', () => {
     });
 
     describe('updateUser', () => {
-        it('throws 400 if empty data is provided', async () => {
-            await expect(service.updateUser('u1', {})).rejects.toThrow('Body request tidak boleh kosong untuk update');
+        it('throws 403 if requesterId does not match user id', async () => {
+            await expect(service.updateUser('u1', 'u2', { full_name: 'New Name' }))
+                .rejects.toThrow('Forbidden: Anda hanya bisa mengupdate profil Anda sendiri');
         });
 
-        it('injects updated_at field and updates user', async () => {
-            mockSupabase.single.mockResolvedValueOnce({ data: { id: 'u1', role: 'admin' }, error: null });
-            await service.updateUser('u1', { role: 'admin', institution_id: 'i1' });
+        it('throws 400 if empty data is provided', async () => {
+            await expect(service.updateUser('u1', 'u1', {}))
+                .rejects.toThrow('Body request tidak boleh kosong untuk update (field: full_name)');
+        });
+
+        it('injects updated_at field and updates full_name', async () => {
+            mockSupabase.single.mockResolvedValueOnce({ data: { id: 'u1', full_name: 'John Doe' }, error: null });
+            await service.updateUser('u1', 'u1', { full_name: 'John Doe' });
             
             const updateCall = mockSupabase.update.mock.calls[0][0];
-            expect(updateCall.role).toBe('admin');
-            expect(updateCall.institution_id).toBe('i1');
+            expect(updateCall.full_name).toBe('John Doe');
             expect(updateCall.updated_at).toBeDefined();
+            expect(updateCall.role).toBeUndefined();
+            expect(updateCall.institution_id).toBeUndefined();
         });
     });
 

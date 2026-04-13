@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { UserService } from "@/service/user/user.service";
+import redis, { invalidateCache } from "@/lib/redis";
+import { extractUserProfile } from "@/lib/api-auth";
 
 export async function GET(
     request: NextRequest,
@@ -8,23 +10,30 @@ export async function GET(
 ) {
     try {
         const { supabase, user } = await getSupabaseServer(request);
-
-        if (!user) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
         const params = await props.params;
         const id = params.id;
-
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
+        const { role } = extractUserProfile(user);
         
         // Authorization: hanya admin atau user yang bersangkutan
-        if (role !== 'admin' && user.id !== id) {
+        if (user.id !== id) {
              return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 
         const userService = new UserService(supabase);
+        const cacheKey = `user:${id}`;
+        const cachedData = await redis.get(cacheKey);
+
+        if (cachedData) {
+            return NextResponse.json({ 
+                data: JSON.parse(cachedData) 
+            }, { status: 200 });
+        }
+
         const data = await userService.getUserById(id);
+        // Cache for 15 minutes
+        await redis.set(cacheKey, JSON.stringify(data), 'EX', 900);
 
         return NextResponse.json({ data }, { status: 200 });
     } catch (err) {
@@ -42,25 +51,20 @@ export async function PATCH(
 ) {
     try {
         const { supabase, user } = await getSupabaseServer(request);
-
-        if (!user) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
         const params = await props.params;
         const id = params.id;
-        
         const body = await request.json();
 
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
-        
-        // Authorization: update role atau institution_id hanya Admin
-        if (role !== 'admin') {
-             return NextResponse.json({ error: 'Forbidden: Admin access only for updating users' }, { status: 403 });
-        }
-
         const userService = new UserService(supabase);
-        const data = await userService.updateUser(id, body);
+        // Logic otorisasi update field sensitif ada di dalam service layer
+        const data = await userService.updateUser(id, user.id, body);
+
+        // Invalidate cache
+        await invalidateCache('users');
+        await redis.del(`user:${id}`);
+        await redis.del(`user-me:${id}`);
 
         return NextResponse.json({ 
             message: "User berhasil diupdate",
@@ -82,23 +86,23 @@ export async function DELETE(
 ) {
     try {
         const { supabase, user } = await getSupabaseServer(request);
-
-        if (!user) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
         const params = await props.params;
         const id = params.id;
 
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
-        
-        // Authorization: hanya admin atau user yang bersangkutan
-        if (role !== 'admin' && user.id !== id) {
-             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        // User instruksi: Hanya user yang bersangkutan yang bisa delete (admin pun tidak bisa delete user lain)
+        if (user.id !== id) {
+             return NextResponse.json({ error: 'Forbidden: Hanya Anda yang dapat menghapus akun Anda sendiri' }, { status: 403 });
         }
 
         const userService = new UserService(supabase);
         const data = await userService.deleteUser(id);
+
+        // Invalidate cache
+        await invalidateCache('users');
+        await redis.del(`user:${id}`);
+        await redis.del(`user-me:${id}`);
 
         return NextResponse.json({ 
             message: "User berhasil dihapus",

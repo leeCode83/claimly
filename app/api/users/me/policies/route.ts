@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { PatientService } from "@/service/patient/patient.service";
+import redis from "@/lib/redis";
 
 export async function GET(request: NextRequest) {
     try {
@@ -14,7 +15,21 @@ export async function GET(request: NextRequest) {
         }
 
         const patientService = new PatientService(supabase);
+
+        const cacheKey = `user-me-policies:${user.id}`;
+        const cachedData = await redis.get(cacheKey);
+
+        if (cachedData) {
+            return NextResponse.json({
+                message: "Berhasil mengambil daftar polis asuransi Anda",
+                data: JSON.parse(cachedData)
+            }, { status: 200 });
+        }
+
         const data = await patientService.getPatientPoliciesByUserId(user.id);
+
+        // Cache for 15 minutes
+        await redis.set(cacheKey, JSON.stringify(data), 'EX', 900);
 
         return NextResponse.json({
             message: "Berhasil mengambil daftar polis asuransi Anda",

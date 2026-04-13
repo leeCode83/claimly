@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { ClaimService } from "@/service/claim/claim.service";
+import redis, { invalidateCache } from "@/lib/redis";
+import { authorizeApiRequest } from "@/lib/api-auth";
 export const dynamic = 'force-dynamic';
 
 
@@ -12,17 +14,22 @@ export async function POST(
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
-
-        if (role !== 'insurance_reviewer') {
-            return NextResponse.json({ error: 'Forbidden: Hanya insurance_reviewer yang dapat memverifikasi proof klaim' }, { status: 403 });
-        }
+        const { errorResponse } = authorizeApiRequest(user, { 
+            allowedRoles: ['insurance_reviewer'],
+            requireInstitution: true
+        });
+        if (errorResponse) return errorResponse;
 
         const params = await props.params;
         const claimId = params.id;
 
         const claimService = new ClaimService(supabase);
         const result = await claimService.requestVerification(claimId);
+
+        // Invalidate cache
+        await invalidateCache('claims');
+        await redis.del(`claim:${claimId}`);
+        await redis.del(`claim:${claimId}:proof`);
 
         const isAlreadyVerified = result.status === "already_verified";
         return NextResponse.json({
