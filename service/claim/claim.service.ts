@@ -41,7 +41,7 @@ export class ClaimService {
                 claim_amount,
                 submitted_at,
                 status,
-                procedures:procedure_id!inner(description)
+                procedures:procedure_id!inner(description, icd9_code)
             `, { count: 'exact' });
 
         // Filter berdasarkan status (exact match)
@@ -65,11 +65,13 @@ export class ClaimService {
         }
 
         // Mapping data (Disederhanakan tanpa Nama RS):
-        // 1. claim_id, 2. procedure_id, 3. claim_amount, 4. submitted_at, 5. Status
+        // 1. claim_id, 2. procedure_id, 3. claim_amount, 4. submitted_at, 5. Status, 6. procedure_code
         const formattedData = data?.map(item => {
+            const procedure = item.procedures as any;
             return {
                 claim_id: item.id,
                 procedure_id: item.procedure_id,
+                procedure_code: procedure?.icd9_code,
                 claim_amount: item.claim_amount,
                 submitted_at: item.submitted_at,
                 status: item.status
