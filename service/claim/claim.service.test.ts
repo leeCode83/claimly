@@ -23,6 +23,9 @@ describe('ClaimService', () => {
         const mockBuilder = {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
+            ilike: jest.fn().mockReturnThis(),
+            order: jest.fn().mockReturnThis(),
+            range: jest.fn().mockReturnThis(),
             insert: jest.fn().mockReturnThis(),
             update: jest.fn().mockReturnThis(),
             delete: jest.fn().mockReturnThis(),
@@ -122,24 +125,50 @@ describe('ClaimService', () => {
     describe('getClaims', () => {
         it('berhasil mengambil daftar klaim dengan paginasi', async () => {
             const mockData = [
-                { id: '1', total_count: 2 },
-                { id: '2', total_count: 2 }
+                { 
+                    id: '1', 
+                    medical_record_id: 'mr-1',
+                    procedure_date: '2026-03-20',
+                    claim_amount: 500000,
+                    status: 'submitted',
+                    procedures: { icd9_code: '99.99', description: 'Test Proc' },
+                    patient_policies: { policy_commitment: 'Commitment A' }
+                }
             ];
-            supabaseMock.rpc.mockResolvedValue({ data: mockData, error: null });
+            
+            const mockRange = jest.fn().mockResolvedValue({ 
+                data: mockData, 
+                error: null, 
+                count: 1 
+            });
+
+            supabaseMock.from.mockImplementation(() => ({
+                select: jest.fn().mockReturnThis(),
+                order: jest.fn().mockReturnThis(),
+                range: mockRange
+            }));
 
             const result = await claimService.getClaims({ page: 1, limit: 10 });
 
-            expect(result.data).toEqual(mockData);
-            expect(result.meta.total).toBe(2);
-            expect(result.meta.total_pages).toBe(1);
-            expect(supabaseMock.rpc).toHaveBeenCalledWith('get_claims_paginated', expect.objectContaining({
-                p_page: 1,
-                p_limit: 10
-            }));
+            expect(result.data).toHaveLength(1);
+            expect(result.data[0].claim_id).toBe('1');
+            expect(result.data[0].procedure_code).toBe('99.99');
+            expect(result.meta.total).toBe(1);
+            expect(supabaseMock.from).toHaveBeenCalledWith('claims');
         });
 
-        it('harus melempar error jika RPC gagal', async () => {
-            supabaseMock.rpc.mockResolvedValue({ data: null, error: { message: 'Database error' } });
+        it('harus melempar error jika query gagal', async () => {
+            const mockRange = jest.fn().mockResolvedValue({ 
+                data: null, 
+                error: { message: 'Database error' }, 
+                count: 0 
+            });
+
+            supabaseMock.from.mockImplementation(() => ({
+                select: jest.fn().mockReturnThis(),
+                order: jest.fn().mockReturnThis(),
+                range: mockRange
+            }));
 
             await expect(claimService.getClaims({})).rejects.toThrow('Database error');
         });

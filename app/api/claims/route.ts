@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const { errorResponse } = authorizeApiRequest(user, { 
+        const { errorResponse, institution_id } = authorizeApiRequest(user, { 
             allowedRoles: ['hospital_staff', 'insurance_reviewer', 'patient', 'admin'],
             requireInstitution: true
         });
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
         const claimService = new ClaimService(supabase);
 
-        const cacheKey = `claims:page=${page}:limit=${limit}:sort=${sortBy}:${sortDir}:status=${status || 'all'}:search=${search || 'none'}`;
+        const cacheKey = `claims:user=${user.id}:inst=${institution_id || 'none'}:page=${page}:limit=${limit}:sort=${sortBy}:${sortDir}:status=${status || 'all'}:search=${search || 'none'}`;
         const cachedData = await redis.get(cacheKey);
 
         if (cachedData) {

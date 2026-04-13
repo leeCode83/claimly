@@ -14,12 +14,12 @@ export const useAuth = (token?: string | null) => {
     const [localToken, setLocalToken] = useState<string | null>(null);
     const accessToken = token || localToken;
 
-    // // Log the access token for debugging purposes
-    // useEffect(() => {
-    //     if (accessToken) {
-    //         console.log("[useAuth] Access Token successfully retrieved:", accessToken);
-    //     }
-    // }, [accessToken]);
+    // Log the access token for debugging purposes
+    useEffect(() => {
+        if (accessToken) {
+            console.log("[useAuth] Access Token successfully retrieved:", accessToken);
+        }
+    }, [accessToken]);
 
     /**
      * Authenticate a user with Keycloak OIDC.

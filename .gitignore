@@ -37,6 +37,7 @@ yarn-error.log*
 .env.production
 .env.docker
 
+PLAN*
 
 # vercel
 .vercel
