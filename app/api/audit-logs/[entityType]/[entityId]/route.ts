@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { AuditLogService } from "@/service/audit-log/audit-log.service";
 import redis from "@/lib/redis";
+import { authorizeApiRequest } from "@/lib/api-auth";
 
 export async function GET(
     request: NextRequest,
@@ -11,15 +12,11 @@ export async function GET(
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
-
-        const allowedRoles = ['admin', 'insurance_reviewer', 'hospital_staff'];
-        if (!role || !allowedRoles.includes(role)) {
-            return NextResponse.json(
-                { error: 'Forbidden: Hanya admin, insurance_reviewer, atau hospital_staff yang dapat mengakses audit logs entitas' },
-                { status: 403 }
-            );
-        }
+        const { errorResponse } = authorizeApiRequest(user, { 
+            allowedRoles: ['admin', 'hospital_staff', 'insurance_reviewer'],
+            requireInstitution: false
+        });
+        if (errorResponse) return errorResponse;
 
         const params = await props.params;
         const { entityType, entityId } = params;

@@ -2,23 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { MedicalRecordService } from "@/service/medical-record/medical-record.service";
 import redis, { invalidateCache } from "@/lib/redis";
+import { authorizeApiRequest } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
     try {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
-        const institution_id = (user.user_metadata?.custom_claims?.institution_id || user.user_metadata?.institution_id);
-
-        const allowedRoles = ['patient', 'hospital_staff'];
-        if (!role || !allowedRoles.includes(role)) {
-            return NextResponse.json({ error: 'Forbidden: Hanya hospital_staff yang dapat mencari rekam medis' }, { status: 403 });
-        }
-
-        if (role =='hospital_staff' && !institution_id) {
-            return NextResponse.json({ error: 'Forbidden: Akun Anda belum terhubung ke institusi manapun' }, { status: 403 });
-        }
+        const { institution_id, errorResponse } = authorizeApiRequest(user, { 
+            allowedRoles: ['patient', 'hospital_staff'], 
+            requireInstitution: true 
+        });
+        if (errorResponse) return errorResponse;
 
         const searchParams = request.nextUrl.searchParams;
         const patientId = searchParams.get('patient_id') || undefined;
@@ -39,7 +34,7 @@ export async function GET(request: NextRequest) {
 
         // Method name is getMedicalRecords, and it uses hospitalInstitutionId
         const result = await medicalRecordService.getMedicalRecords({ 
-            hospitalInstitutionId: institution_id, 
+            hospitalInstitutionId: institution_id ?? undefined, 
             patientId,
             limit, 
             page 
@@ -64,23 +59,17 @@ export async function POST(request: NextRequest) {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
-        const institution_id = (user.user_metadata?.custom_claims?.institution_id || user.user_metadata?.institution_id);
-
-        if (role !== 'hospital_staff') {
-            console.log(role)
-            return NextResponse.json({ error: 'Forbidden: Hanya hospital_staff yang dapat membuat rekam medis' }, { status: 403 });
-        }
-
-        if (!institution_id) {
-            return NextResponse.json({ error: 'Forbidden: Akun Anda belum terhubung ke institusi manapun' }, { status: 403 });
-        }
+        const { institution_id, errorResponse } = authorizeApiRequest(user, { 
+            allowedRoles: ['hospital_staff'], 
+            requireInstitution: true 
+        });
+        if (errorResponse) return errorResponse;
 
         const body = await request.json();
 
         const medicalRecordService = new MedicalRecordService(supabase);
         // Arguments: payload, hospitalInstitutionId, attendingDoctorId
-        const data = await medicalRecordService.createMedicalRecord(body, institution_id, user.id);
+        const data = await medicalRecordService.createMedicalRecord(body, institution_id as string, user.id);
 
         // Invalidate cache
         await invalidateCache('medical-records');

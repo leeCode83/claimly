@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { ClaimService } from "@/service/claim/claim.service";
 import redis from "@/lib/redis";
+import { authorizeApiRequest } from "@/lib/api-auth";
 export const dynamic = 'force-dynamic';
 
 
@@ -13,6 +14,12 @@ export async function GET(
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+        const { role, errorResponse } = authorizeApiRequest(user, { 
+            allowedRoles: ['hospital_staff', 'insurance_reviewer', 'patient', 'admin'],
+            requireInstitution: true
+        });
+        if (errorResponse) return errorResponse;
+
         const params = await props.params;
         const claimId = params.id;
 
@@ -23,14 +30,6 @@ export async function GET(
             return NextResponse.json({ 
                 data: JSON.parse(cachedData) 
             }, { status: 200 });
-        }
-
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
-        
-        // Roles yang diperbolehkan: hospital_staff, insurance_reviewer, patient
-        const allowedRoles = ['hospital_staff', 'insurance_reviewer', 'patient', 'admin'];
-        if (!role || !allowedRoles.includes(role)) {
-            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 
         const claimService = new ClaimService(supabase);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { PolicyService } from "@/service/policy/policy.service";
 import redis, { invalidateCache } from "@/lib/redis";
+import { authorizeApiRequest } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest){
     try {
@@ -10,6 +11,12 @@ export async function GET(request: NextRequest){
         if(!user){
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
+
+        const { errorResponse } = authorizeApiRequest(user, { 
+            allowedRoles: ['patient', 'hospital_staff', 'insurance_reviewer'],
+            requireInstitution: true
+        });
+        if (errorResponse) return errorResponse;
 
         const searchParams = request.nextUrl.searchParams;
         const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : undefined;

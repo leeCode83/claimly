@@ -3,6 +3,7 @@ import { getSupabaseServer } from "@/supabase-config";
 import { ClaimService } from "@/service/claim/claim.service";
 import { invalidateCache } from "@/lib/redis";
 import redis from "@/lib/redis";
+import { authorizeApiRequest } from "@/lib/api-auth";
 export const dynamic = 'force-dynamic';
 
 
@@ -14,11 +15,11 @@ export async function PATCH(
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const role = (user.user_metadata?.custom_claims?.role || user.user_metadata?.role);
-
-        if (role !== 'insurance_reviewer') {
-            return NextResponse.json({ error: 'Forbidden: Hanya insurance_reviewer yang dapat menyetujui klaim' }, { status: 403 });
-        }
+        const { errorResponse } = authorizeApiRequest(user, { 
+            allowedRoles: ['insurance_reviewer'],
+            requireInstitution: true
+        });
+        if (errorResponse) return errorResponse;
 
         const params = await props.params;
         const claimId = params.id;

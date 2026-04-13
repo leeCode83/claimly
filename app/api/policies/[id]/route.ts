@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/supabase-config";
 import { PolicyService } from "@/service/policy/policy.service";
 import redis, { invalidateCache } from "@/lib/redis";
+import { authorizeApiRequest } from "@/lib/api-auth";
 
 export async function GET(
     request: NextRequest,
@@ -9,10 +10,13 @@ export async function GET(
 ) {
     try {
         const { supabase, user } = await getSupabaseServer(request);
+        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        if (!user) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+        const { errorResponse } = authorizeApiRequest(user, { 
+            allowedRoles: ['admin', 'hospital_staff', 'insurance_reviewer', 'patient'],
+            requireInstitution: true
+        });
+        if (errorResponse) return errorResponse;
 
         const params = await props.params;
         const id = params.id;
@@ -48,14 +52,16 @@ export async function PATCH(
 ) {
     try {
         const { supabase, user } = await getSupabaseServer(request);
+        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        if (!user) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+        const { errorResponse } = authorizeApiRequest(user, { 
+            allowedRoles: ['insurance_reviewer'],
+            requireInstitution: true
+        });
+        if (errorResponse) return errorResponse;
 
         const params = await props.params;
         const id = params.id;
-        
         const body = await request.json();
 
         const policyService = new PolicyService(supabase);
@@ -85,10 +91,13 @@ export async function DELETE(
 ) {
     try {
         const { supabase, user } = await getSupabaseServer(request);
+        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        if (!user) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+        const { errorResponse } = authorizeApiRequest(user, { 
+            allowedRoles: ['admin', 'insurance_reviewer'],
+            requireInstitution: true
+        });
+        if (errorResponse) return errorResponse;
 
         const params = await props.params;
         const id = params.id;

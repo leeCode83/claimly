@@ -1,4 +1,5 @@
 import { User } from '@supabase/supabase-js'
+import { NextResponse } from 'next/server'
 
 export interface KeycloakCustomClaims {
   family_name?: string
@@ -26,4 +27,23 @@ export interface KeycloakUserMetadata {
 
 export interface AuthUser extends User {
   user_metadata: KeycloakUserMetadata
+}
+
+export interface UserProfile {
+    role: string | null;
+    institution_id: string | null;
+}
+
+export interface AuthorizeOptions {
+    allowedRoles: string[];
+    requireInstitution?: boolean;
+}
+
+export interface AuthResult extends UserProfile {
+    errorResponse: NextResponse | null;
+}
+
+export interface Patient {
+    hospital_id: string;
+    user_id: string | null;
 }
