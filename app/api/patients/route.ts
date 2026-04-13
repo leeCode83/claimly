@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
 
         const patientService = new PatientService(supabase);
 
-        const cacheKey = `patients:inst=${institution_id}:page=${page}:limit=${limit}:search=${search || 'none'}`;
+        const cacheKey = `patients_v2:inst=${institution_id}:page=${page}:limit=${limit}:search=${search || 'none'}`;
         const cachedData = await redis.get(cacheKey);
 
         if (cachedData) {
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
         const data = await patientService.createPatient(body, user.id, institution_id as string);
 
         // Invalidate cache
-        await invalidateCache('patients');
+        await invalidateCache('patients_v2');
 
         return NextResponse.json({
             message: "Pasien berhasil didaftarkan",

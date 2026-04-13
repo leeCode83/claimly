@@ -46,8 +46,9 @@ export async function GET(request: NextRequest){
         const searchParams = request.nextUrl.searchParams;
         const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : undefined;
         const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
+        const search = searchParams.get('search') || '';
 
-        const cacheKey = `diagnoses:page=${page || 'default'}:limit=${limit || 'default'}`;
+        const cacheKey = `diagnoses_v2:page=${page || 'default'}:limit=${limit || 'default'}:search=${search || 'none'}`;
         const cachedData = await redis.get(cacheKey);
 
         if (cachedData) {
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest){
         }
 
         const diagnosesService = new DiagnosesService(supabase);
-        const result = await diagnosesService.getDiagnoses({ page, limit });
+        const result = await diagnosesService.getDiagnoses({ page, limit, search });
 
         // Cache the result for 1 hour (3600 seconds)
         await redis.set(cacheKey, JSON.stringify(result), 'EX', 3600);
