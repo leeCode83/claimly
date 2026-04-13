@@ -263,8 +263,8 @@ export default function InsuranceDashboard() {
               <Table>
                 <TableHeader className="bg-muted/50 text-[11px] uppercase tracking-wider">
                   <TableRow>
-                    <TableHead className="font-bold py-4">Pasien & ID Klaim</TableHead>
-                    <TableHead className="font-bold">Rumah Sakit</TableHead>
+                    <TableHead className="font-bold py-4">ID Klaim</TableHead>
+                    <TableHead className="font-bold">Tanggal Pengajuan</TableHead>
                     <TableHead className="font-bold text-center">Status</TableHead>
                     <TableHead className="font-bold">Nominal</TableHead>
                     <TableHead className="text-right font-bold w-[120px]">Aksi</TableHead>
@@ -274,11 +274,11 @@ export default function InsuranceDashboard() {
                   {isInitialLoading && allClaims.length === 0 ? (
                     Array.from({ length: 3 }).map((_, i) => (
                       <TableRow key={`skeleton-${i}`}>
-                        <TableCell><Skeleton className="h-4 w-32" /><Skeleton className="h-3 w-16 mt-1" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                        <TableCell><Skeleton className="h-5 w-24 mx-auto" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                        <TableCell className="text-right"><Skeleton className="h-8 w-16 ml-auto" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                        <TableCell><Skeleton className="h-5 w-24 mx-auto" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell className="text-right"><Skeleton className="h-8 w-20 ml-auto rounded-full" /></TableCell>
                       </TableRow>
                     ))
                   ) : filteredClaims.length === 0 ? (
@@ -295,27 +295,28 @@ export default function InsuranceDashboard() {
                       if (!claim) return null;
                       const displayId = (claim.claim_id || claim.id || "");
                       return (
-                        <TableRow key={displayId} className="group hover:bg-primary/5 transition-all cursor-pointer" onClick={() => handleViewDetail(claim)}>
+                        <TableRow key={displayId} className="group hover:bg-primary/5 transition-all cursor-pointer border-b" onClick={() => handleViewDetail(claim)}>
                           <TableCell>
-                            <div className="font-semibold text-foreground">
-                              {claim.patient_name || claim.medical_record?.patient?.full_name || ("Pasien " + displayId.split('-')[0].toUpperCase())}
+                            <div className="font-mono font-bold text-primary uppercase text-sm">
+                              {displayId.split('-')[0]}
                             </div>
-                            <div className="text-[10px] font-mono text-muted-foreground uppercase">{displayId.split('-')[0]}</div>
                           </TableCell>
-                        <TableCell className="text-sm font-medium">
-                          {claim.institution_name || claim.medical_record?.institution?.name || "RS Terdaftar"}
-                        </TableCell>
-                        <TableCell className="text-center">
-                           {getStatusBadge(claim.status)}
-                        </TableCell>
-                        <TableCell className="font-bold text-primary">{formatRupiah(claim.claim_amount)}</TableCell>
+                          <TableCell className="text-sm font-medium text-muted-foreground">
+                            {formatDate(claim.created_at || new Date().toISOString())}
+                          </TableCell>
+                          <TableCell className="text-center">
+                             {getStatusBadge(claim.status)}
+                          </TableCell>
+                          <TableCell className="font-bold text-foreground text-sm">
+                            {formatRupiah(claim.claim_amount)}
+                          </TableCell>
                           <TableCell className="text-right">
                             <Button 
                               variant="ghost" 
                               size="sm" 
-                              className="bg-primary/5 hover:bg-primary hover:text-white transition-all"
+                              className="bg-primary/5 text-primary hover:bg-primary hover:text-white transition-all rounded-full px-5"
                             >
-                              Tinjau
+                              Detail
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -556,11 +557,46 @@ export default function InsuranceDashboard() {
                             </div>
                           ))}
                        </div>
-                       <div className="p-5 bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-green-500 rounded-2xl border font-mono text-[10px] shadow-inner">
+                       <div className="bg-slate-50 dark:bg-slate-900 rounded-3xl border p-5 shadow-inner">
                           {selectedClaim.zkp_proofs ? (
-                             <pre className="whitespace-pre-wrap">{JSON.stringify(Array.isArray(selectedClaim.zkp_proofs) ? selectedClaim.zkp_proofs[0]?.public_signals : selectedClaim.zkp_proofs?.public_signals, null, 2)}</pre>
+                             (() => {
+                               const signals = Array.isArray(selectedClaim.zkp_proofs) ? selectedClaim.zkp_proofs[0]?.public_signals : selectedClaim.zkp_proofs?.public_signals;
+                               if (!signals || signals.length === 0) return <p className="italic py-4 text-center text-muted-foreground text-xs">Public signals kosong.</p>;
+                               
+                               const mapping = [
+                                 { id: 0, label: "Procedure Code (ICD-9)", value: signals[0] },
+                                 { id: 1, label: "Procedure Date", value: signals[1], isDate: true },
+                                 { id: 2, label: "Claim Amount", value: signals[2], isCurrency: true },
+                                 { id: 3, label: "Approved Diagnosis Merkle Root Hash", value: signals[3] },
+                                 { id: 4, label: "Approved Procedure Merkle Root Hash", value: signals[4] },
+                                 { id: 5, label: "Max Coverage", value: signals[5], isCurrency: true },
+                               ];
+
+                               return (
+                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                   {mapping.map((signal) => (
+                                      <div key={signal.id} className="flex flex-col bg-white dark:bg-slate-950 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 transition-all hover:border-primary/40 hover:shadow-md group">
+                                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">{signal.label}</span>
+                                        {signal.isCurrency && signal.value && !isNaN(Number(signal.value)) ? (
+                                          <span className="text-[11px] font-bold text-primary">
+                                            {formatRupiah(Number(signal.value))}
+                                          </span>
+                                        ) : signal.isDate && signal.value && typeof signal.value === 'string' && signal.value.length === 8 ? (
+                                          <span className="text-[11px] font-bold text-primary">
+                                            {`${signal.value.substring(6, 8)}-${signal.value.substring(4, 6)}-${signal.value.substring(0, 4)}`}
+                                          </span>
+                                        ) : (
+                                          <span className="text-[11px] font-mono font-medium text-foreground break-all">
+                                            {signal.value || "-"}
+                                          </span>
+                                        )}
+                                      </div>
+                                   ))}
+                                 </div>
+                               );
+                             })()
                           ) : (
-                             <p className="italic py-4 text-center">Public signals tidak tersedia.</p>
+                             <p className="italic py-4 text-center text-muted-foreground text-xs">Public signals tidak tersedia.</p>
                           )}
                        </div>
                     </div>
