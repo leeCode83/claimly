@@ -18,7 +18,8 @@ import {
   ChevronUpIcon,
   CodeIcon,
   EyeIcon,
-  Copy
+  Copy,
+  XIcon
 } from "lucide-react"
 
 import { usePatients } from "@/hooks/usePatients"
@@ -202,6 +203,10 @@ export default function HospitalDashboard() {
     notes: ""
   })
 
+  // Records Filtering State
+  const [recordsStartDate, setRecordsStartDate] = useState("")
+  const [recordsEndDate, setRecordsEndDate] = useState("")
+
   // Selected Claim Detail State
   const [selectedClaim, setSelectedClaim] = useState<any | null>(null)
   const [claimProofData, setClaimProofData] = useState<any | null>(null)
@@ -224,10 +229,15 @@ export default function HospitalDashboard() {
     }
   }
 
-  const loadMedicalRecords = async (page = recordsPage) => {
+  const loadMedicalRecords = async (page = recordsPage, startDate = recordsStartDate, endDate = recordsEndDate) => {
     setIsRecordsLoading(true)
     try {
-      const res = await getMedicalRecords({ page, limit: 10 })
+      const res = await getMedicalRecords({ 
+        page, 
+        limit: 10,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined
+      })
       if (res && res.data) {
         setMedicalRecords(res.data)
         setRecordsTotalPages(res.meta?.total_pages || res.pagination?.total_pages || 1)
@@ -296,7 +306,7 @@ export default function HospitalDashboard() {
         loadPatients(patientPage, patientSearch)
         getPolicies({ limit: 100 }).then(res => setPoliciesData(res.data || [])).catch(console.error)
       } else if (activeTab === "records") {
-        loadMedicalRecords(recordsPage)
+        loadMedicalRecords(recordsPage, recordsStartDate, recordsEndDate)
         if (patients.length === 0) loadPatients(1, "")
         loadDiagnosesData(1, "")
       } else if (activeTab === "claims") {
@@ -319,14 +329,23 @@ export default function HospitalDashboard() {
     return () => clearTimeout(timer);
   }, [patientSearch]);
 
-  // Search Debounce Implementation
+  // Debounce Medical Records Date Changes
   useEffect(() => {
-    if (activeTab !== "policy" && !isNewRecordOpen) return;
+    if (activeTab !== "records") return;
     const timer = setTimeout(() => {
-      loadDiagnosesData(diagnosesPage, diagnosesSearch);
+      loadMedicalRecords(1, recordsStartDate, recordsEndDate);
     }, 500);
     return () => clearTimeout(timer);
-  }, [diagnosesSearch, diagnosesPage, isNewRecordOpen]);
+  }, [recordsStartDate, recordsEndDate, activeTab]);
+
+  // Debounce Policy ICD (Diagnoses & Procedures) Search
+  useEffect(() => {
+    if (activeTab !== "policy") return;
+    const timer = setTimeout(() => {
+      loadDiagnosesData(1, diagnosesSearch);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [diagnosesSearch]);
 
   useEffect(() => {
     if (activeTab !== "policy") return;
@@ -933,200 +952,241 @@ export default function HospitalDashboard() {
         </TabsContent>
 
         <TabsContent value="records" className="space-y-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 border-b">
-              <div className="space-y-1">
-                <CardTitle>Entri Rekam Medis Terbaru</CardTitle>
-                <CardDescription>Catatan medis yang telah dienkripsi menggunakan kunci publik pasien.</CardDescription>
+          <Card className="rounded-3xl border-none shadow-xl shadow-slate-200/50 overflow-hidden">
+            <CardHeader className="border-b bg-muted/5 p-6">
+              <div className="flex flex-col gap-6">
+                {/* Header Top: Title & Create Action */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <CardTitle className="text-xl font-bold">Daftar Rekam Medis</CardTitle>
+                    <CardDescription className="text-sm">
+                      Semua riwayat diagnosis dan tindakan medis di instansi Anda.
+                    </CardDescription>
+                  </div>
+                  
+                  <Dialog open={isNewRecordOpen} onOpenChange={setIsNewRecordOpen}>
+                    <DialogTrigger asChild>
+                      <Button className="rounded-xl shadow-lg shadow-primary/20 gap-2 px-6">
+                        <PlusIcon className="size-4" />
+                        Tambah Rekam Medis
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[1100px] w-[95vw] max-h-[90vh] overflow-hidden flex flex-col p-0 border-none shadow-2xl rounded-3xl">
+                      <DialogHeader className="p-6 pb-4 border-b shrink-0 bg-muted/20">
+                        <DialogTitle className="text-2xl font-bold flex items-center gap-3">
+                          <div className="p-2 bg-primary/10 rounded-xl">
+                            <PlusIcon className="size-6 text-primary" />
+                          </div>
+                          Tambah Rekam Medis
+                        </DialogTitle>
+                        <DialogDescription>
+                          Isi data diagnosis dan prosedur pasien. Catatan akan dienkripsi secara aman menggunakan kunci publik pasien.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <form onSubmit={handleCreateRecord} className="flex-1 overflow-hidden flex flex-col p-0">
+                        <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-background">
+                          {/* LEFT SECTION: Basic Info */}
+                          <div className="w-full md:w-[380px] border-r bg-muted/5 p-8 overflow-y-auto space-y-8">
+                            <div className="space-y-6">
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shadow-sm">1</div>
+                                <h3 className="font-bold text-sm uppercase tracking-wider text-slate-500">Informasi Dasar</h3>
+                              </div>
+
+                              <div className="space-y-4">
+                                <div className="space-y-2">
+                                  <Label htmlFor="patient_id" className="text-xs font-bold uppercase text-slate-400">Pilih Pasien <span className="text-destructive">*</span></Label>
+                                  <select 
+                                    id="patient_id"
+                                    className="flex h-12 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:ring-primary shadow-sm"
+                                    value={newRecordForm.patient_id}
+                                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNewRecordForm({...newRecordForm, patient_id: e.target.value})}
+                                    required
+                                  >
+                                    <option value="" disabled>Pilih Pasien...</option>
+                                    {patients.map((p) => (
+                                      <option key={p.id} value={p.id}>{p.full_name} ({p.nik})</option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label htmlFor="diagnosis_date" className="text-xs font-bold uppercase text-slate-400">Tanggal Diagnosis <span className="text-destructive">*</span></Label>
+                                  <Input 
+                                    id="diagnosis_date" 
+                                    type="date"
+                                    className="h-12 rounded-xl border-input focus:ring-primary shadow-sm"
+                                    value={newRecordForm.diagnosis_date}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewRecordForm({...newRecordForm, diagnosis_date: e.target.value})}
+                                    required
+                                  />
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label htmlFor="notes" className="text-xs font-bold uppercase text-slate-400">Catatan Medis (Opsional)</Label>
+                                  <Textarea
+                                    id="notes"
+                                    className="min-h-[140px] rounded-2xl border-input focus:ring-primary shadow-inner resize-none p-4 text-sm"
+                                    placeholder="Tuliskan catatan tambahan..."
+                                    value={newRecordForm.notes}
+                                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNewRecordForm({...newRecordForm, notes: e.target.value})}
+                                  />
+                                  <p className="text-[10px] text-muted-foreground italic px-1 opacity-70">
+                                    Catatan akan dienkripsi E2EE dengan kunci publik pasien.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* RIGHT SECTION: Diagnosis Whitelist Selection */}
+                          <div className="flex-1 flex flex-col min-w-0 bg-background">
+                            <div className="px-8 py-4 border-b bg-muted/5 flex items-center justify-between shrink-0">
+                              <div className="flex items-center gap-2">
+                                <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shadow-sm">2</div>
+                                <h3 className="font-bold text-sm uppercase tracking-wider text-slate-500">Pilih Diagnosis (ICD-10)</h3>
+                              </div>
+                              {newRecordForm.diagnosis_id && (
+                                <Badge variant="success" className="rounded-full animate-in zoom-in duration-300">Terpilih</Badge>
+                              )}
+                            </div>
+
+                            <div className="flex-1 flex flex-col p-8 overflow-hidden">
+                              <div className="relative group mb-4">
+                                 <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400 group-focus-within:text-primary transition-colors" />
+                                 <Input 
+                                    placeholder="Cari kode atau nama diagnosa..." 
+                                    className="h-11 pl-10 rounded-xl bg-muted/30 border-transparent focus:bg-white focus:border-primary transition-all text-sm shadow-inner" 
+                                    value={diagnosesSearch}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => { 
+                                      setDiagnosesSearch(e.target.value); 
+                                      setDiagnosesPage(1); 
+                                    }}
+                                 />
+                              </div>
+
+                              <div className="flex-1 border rounded-2xl overflow-hidden bg-muted/5 flex flex-col shadow-sm">
+                                <div className="overflow-y-auto flex-1">
+                                  <Table>
+                                    <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
+                                      <TableRow className="hover:bg-transparent">
+                                        <TableHead className="w-24 text-[10px] font-bold uppercase tracking-wider">Kode</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-wider">Deskripsi</TableHead>
+                                        <TableHead className="w-16 text-right"></TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {isMedRecLoading ? (
+                                        Array.from({ length: 5 }).map((_, i) => (
+                                          <TableRow key={i}>
+                                            <TableCell><Skeleton className="h-4 w-12" /></TableCell>
+                                            <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                                            <TableCell><Skeleton className="h-8 w-8 rounded-full ml-auto" /></TableCell>
+                                          </TableRow>
+                                        ))
+                                      ) : (
+                                        diagnoses.map((d) => (
+                                          <TableRow 
+                                            key={d.id} 
+                                            className={cn(
+                                              "cursor-pointer transition-colors group",
+                                              newRecordForm.diagnosis_id === d.id ? "bg-primary/10 border-primary/20 hover:bg-primary/20" : "hover:bg-muted/30"
+                                            )}
+                                            onClick={() => setNewRecordForm({ ...newRecordForm, diagnosis_id: d.id })}
+                                          >
+                                            <TableCell className="font-mono text-xs font-bold text-primary">{d.icd10_code}</TableCell>
+                                            <TableCell className="text-xs font-medium text-slate-700">{d.description}</TableCell>
+                                            <TableCell className="text-right">
+                                              <div className={cn(
+                                                "size-5 rounded-full border-2 flex items-center justify-center transition-all",
+                                                newRecordForm.diagnosis_id === d.id ? "bg-primary border-primary" : "border-slate-200 group-hover:border-primary/50"
+                                              )}>
+                                                {newRecordForm.diagnosis_id === d.id && <div className="size-1.5 bg-white rounded-full" />}
+                                              </div>
+                                            </TableCell>
+                                          </TableRow>
+                                        ))
+                                      )}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+
+                                {/* Inner Pagination for Diagnoses */}
+                                <div className="p-3 border-t bg-white shrink-0">
+                                   <Pagination>
+                                    <PaginationContent>
+                                      <PaginationItem>
+                                        <PaginationPrevious 
+                                          href="#" 
+                                          onClick={(e: React.MouseEvent) => { e.preventDefault(); setDiagnosesPage(p => Math.max(1, p - 1)) }}
+                                          className={diagnosesPage === 1 ? "pointer-events-none opacity-50 scale-75" : "scale-75"}
+                                        />
+                                      </PaginationItem>
+                                      <PaginationItem className="text-[11px] font-bold text-slate-500 px-4">
+                                         Halaman {diagnosesPage}
+                                      </PaginationItem>
+                                      <PaginationItem>
+                                        <PaginationNext 
+                                          href="#" 
+                                          onClick={(e: React.MouseEvent) => { e.preventDefault(); setDiagnosesPage(p => p + 1) }}
+                                          className={diagnoses.length < diagnosesLimit ? "pointer-events-none opacity-50 scale-75" : "scale-75"}
+                                        />
+                                      </PaginationItem>
+                                    </PaginationContent>
+                                  </Pagination>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <DialogFooter className="p-4 px-8 border-t bg-muted/10 shrink-0 gap-3">
+                          <Button type="button" variant="ghost" className="rounded-xl border hover:bg-muted" onClick={() => setIsNewRecordOpen(false)}>
+                            Batal
+                          </Button>
+                          <Button type="submit" className="rounded-xl px-8 shadow-lg shadow-primary/20" disabled={isMedRecLoading || !newRecordForm.diagnosis_id}>
+                            {isMedRecLoading ? <Loader2Icon className="size-4 animate-spin mr-2" /> : <PlusIcon className="size-4 mr-2" />}
+                            Simpan Rekam Medis
+                          </Button>
+                        </DialogFooter>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+
+                {/* Header Bottom: Date Filter Only */}
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  <div className="flex items-center gap-1 border rounded-xl px-4 py-1.5 bg-background shadow-sm border-muted-foreground/20">
+                    <Label className="text-[10px] text-muted-foreground uppercase font-black pr-3 border-r mr-2 tracking-widest">Visit Range</Label>
+                    <Input 
+                      type="date" 
+                      className="border-none bg-transparent h-7 p-0 focus-visible:ring-0 text-xs w-28 font-medium"
+                      value={recordsStartDate}
+                      onChange={(e) => setRecordsStartDate(e.target.value)}
+                    />
+                    <span className="text-muted-foreground px-1 font-bold">→</span>
+                    <Input 
+                      type="date" 
+                      className="border-none bg-transparent h-7 p-0 focus-visible:ring-0 text-xs w-28 font-medium"
+                      value={recordsEndDate}
+                      onChange={(e) => setRecordsEndDate(e.target.value)}
+                    />
+                    {(recordsStartDate || recordsEndDate) && (
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-7 w-7 ml-2 hover:text-destructive hover:bg-destructive/10 rounded-full transition-all" 
+                        onClick={() => {
+                          setRecordsStartDate("");
+                          setRecordsEndDate("");
+                        }}
+                      >
+                        {isRecordsLoading ? <Loader2Icon className="size-3 animate-spin" /> : <XIcon className="size-3" />}
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
-              <Dialog open={isNewRecordOpen} onOpenChange={setIsNewRecordOpen}>
-                <DialogTrigger asChild>
-                  <Button className="gap-2">
-                    <PlusIcon className="size-4" />
-                    Tambah Rekam Medis
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[1100px] w-[95vw] max-h-[90vh] overflow-hidden flex flex-col p-0 border-none shadow-2xl rounded-3xl">
-                  <DialogHeader className="p-6 pb-4 border-b shrink-0 bg-muted/20">
-                    <DialogTitle className="text-2xl font-bold flex items-center gap-3">
-                      <div className="p-2 bg-primary/10 rounded-xl">
-                        <PlusIcon className="size-6 text-primary" />
-                      </div>
-                      Tambah Rekam Medis
-                    </DialogTitle>
-                    <DialogDescription>
-                      Isi data diagnosis dan prosedur pasien. Catatan akan dienkripsi secara aman menggunakan kunci publik pasien.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={handleCreateRecord} className="flex-1 overflow-hidden flex flex-col p-0">
-                    <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-background">
-                      {/* LEFT SECTION: Basic Info */}
-                      <div className="w-full md:w-[380px] border-r bg-muted/5 p-8 overflow-y-auto space-y-8">
-                        <div className="space-y-6">
-                          <div className="flex items-center gap-2 mb-2">
-                            <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shadow-sm">1</div>
-                            <h3 className="font-bold text-sm uppercase tracking-wider text-slate-500">Informasi Dasar</h3>
-                          </div>
-
-                          <div className="space-y-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="patient_id" className="text-xs font-bold uppercase text-slate-400">Pilih Pasien <span className="text-destructive">*</span></Label>
-                              <select 
-                                id="patient_id"
-                                className="flex h-12 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:ring-primary shadow-sm"
-                                value={newRecordForm.patient_id}
-                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNewRecordForm({...newRecordForm, patient_id: e.target.value})}
-                                required
-                              >
-                                <option value="" disabled>Pilih Pasien...</option>
-                                {patients.map((p) => (
-                                  <option key={p.id} value={p.id}>{p.full_name} ({p.nik})</option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div className="space-y-2">
-                              <Label htmlFor="diagnosis_date" className="text-xs font-bold uppercase text-slate-400">Tanggal Diagnosis <span className="text-destructive">*</span></Label>
-                              <Input 
-                                id="diagnosis_date" 
-                                type="date"
-                                className="h-12 rounded-xl border-input focus:ring-primary shadow-sm"
-                                value={newRecordForm.diagnosis_date}
-                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewRecordForm({...newRecordForm, diagnosis_date: e.target.value})}
-                                required
-                              />
-                            </div>
-
-                            <div className="space-y-2">
-                              <Label htmlFor="notes" className="text-xs font-bold uppercase text-slate-400">Catatan Medis (Opsional)</Label>
-                              <Textarea
-                                id="notes"
-                                className="min-h-[140px] rounded-2xl border-input focus:ring-primary shadow-inner resize-none p-4 text-sm"
-                                placeholder="Tuliskan catatan tambahan..."
-                                value={newRecordForm.notes}
-                                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNewRecordForm({...newRecordForm, notes: e.target.value})}
-                              />
-                              <p className="text-[10px] text-muted-foreground italic px-1 opacity-70">
-                                Catatan akan dienkripsi E2EE dengan kunci publik pasien.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* RIGHT SECTION: Diagnosis Whitelist Selection */}
-                      <div className="flex-1 flex flex-col min-w-0 bg-background">
-                        <div className="px-8 py-4 border-b bg-muted/5 flex items-center justify-between shrink-0">
-                          <div className="flex items-center gap-2">
-                            <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shadow-sm">2</div>
-                            <h3 className="font-bold text-sm uppercase tracking-wider text-slate-500">Pilih Diagnosis (ICD-10)</h3>
-                          </div>
-                          {newRecordForm.diagnosis_id && (
-                            <Badge variant="success" className="rounded-full animate-in zoom-in duration-300">Terpilih</Badge>
-                          )}
-                        </div>
-
-                        <div className="flex-1 flex flex-col p-8 overflow-hidden">
-                          <div className="relative group mb-4">
-                             <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400 group-focus-within:text-primary transition-colors" />
-                             <Input 
-                                placeholder="Cari kode atau nama diagnosa..." 
-                                className="h-11 pl-10 rounded-xl bg-muted/30 border-transparent focus:bg-white focus:border-primary transition-all text-sm shadow-inner" 
-                                value={diagnosesSearch}
-                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => { 
-                                  setDiagnosesSearch(e.target.value); 
-                                  setDiagnosesPage(1); 
-                                }}
-                             />
-                          </div>
-
-                          <div className="flex-1 border rounded-2xl overflow-hidden bg-muted/5 flex flex-col shadow-sm">
-                            <div className="overflow-y-auto flex-1">
-                              <Table>
-                                <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
-                                  <TableRow className="hover:bg-transparent">
-                                    <TableHead className="w-24 text-[10px] font-bold uppercase tracking-wider">Kode</TableHead>
-                                    <TableHead className="text-[10px] font-bold uppercase tracking-wider">Deskripsi</TableHead>
-                                    <TableHead className="w-16 text-right"></TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {isMedRecLoading ? (
-                                    Array.from({ length: 5 }).map((_, i) => (
-                                      <TableRow key={i}>
-                                        <TableCell><Skeleton className="h-4 w-12" /></TableCell>
-                                        <TableCell><Skeleton className="h-4 w-40" /></TableCell>
-                                        <TableCell><Skeleton className="h-8 w-8 rounded-full ml-auto" /></TableCell>
-                                      </TableRow>
-                                    ))
-                                  ) : (
-                                    diagnoses.map((d) => (
-                                      <TableRow 
-                                        key={d.id} 
-                                        className={cn(
-                                          "cursor-pointer transition-colors group",
-                                          newRecordForm.diagnosis_id === d.id ? "bg-primary/10 border-primary/20 hover:bg-primary/20" : "hover:bg-muted/30"
-                                        )}
-                                        onClick={() => setNewRecordForm({ ...newRecordForm, diagnosis_id: d.id })}
-                                      >
-                                        <TableCell className="font-mono text-xs font-bold text-primary">{d.icd10_code}</TableCell>
-                                        <TableCell className="text-xs font-medium text-slate-700">{d.description}</TableCell>
-                                        <TableCell className="text-right">
-                                          <div className={cn(
-                                            "size-5 rounded-full border-2 flex items-center justify-center transition-all",
-                                            newRecordForm.diagnosis_id === d.id ? "bg-primary border-primary" : "border-slate-200 group-hover:border-primary/50"
-                                          )}>
-                                            {newRecordForm.diagnosis_id === d.id && <div className="size-1.5 bg-white rounded-full" />}
-                                          </div>
-                                        </TableCell>
-                                      </TableRow>
-                                    ))
-                                  )}
-                                </TableBody>
-                              </Table>
-                            </div>
-
-                            {/* Inner Pagination for Diagnoses */}
-                            <div className="p-3 border-t bg-white shrink-0">
-                               <Pagination>
-                                <PaginationContent>
-                                  <PaginationItem>
-                                    <PaginationPrevious 
-                                      href="#" 
-                                      onClick={(e: React.MouseEvent) => { e.preventDefault(); setDiagnosesPage(p => Math.max(1, p - 1)) }}
-                                      className={diagnosesPage === 1 ? "pointer-events-none opacity-50 scale-75" : "scale-75"}
-                                    />
-                                  </PaginationItem>
-                                  <PaginationItem className="text-[11px] font-bold text-slate-500 px-4">
-                                     Halaman {diagnosesPage}
-                                  </PaginationItem>
-                                  <PaginationItem>
-                                    <PaginationNext 
-                                      href="#" 
-                                      onClick={(e: React.MouseEvent) => { e.preventDefault(); setDiagnosesPage(p => p + 1) }}
-                                      className={diagnoses.length < diagnosesLimit ? "pointer-events-none opacity-50 scale-75" : "scale-75"}
-                                    />
-                                  </PaginationItem>
-                                </PaginationContent>
-                              </Pagination>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <DialogFooter className="p-4 px-8 border-t bg-muted/10 shrink-0 gap-3">
-                      <Button type="button" variant="ghost" className="rounded-xl border hover:bg-muted" onClick={() => setIsNewRecordOpen(false)}>
-                        Batal
-                      </Button>
-                      <Button type="submit" className="rounded-xl px-8 shadow-lg shadow-primary/20" disabled={isMedRecLoading || !newRecordForm.diagnosis_id}>
-                        {isMedRecLoading ? <Loader2Icon className="size-4 animate-spin mr-2" /> : <PlusIcon className="size-4 mr-2" />}
-                        Simpan Rekam Medis
-                      </Button>
-                    </DialogFooter>
-                  </form>
-                </DialogContent>
-              </Dialog>
             </CardHeader>
             <CardContent className="pt-6">
                <Table>
@@ -1135,8 +1195,8 @@ export default function HospitalDashboard() {
                     <TableHead>ID Rekam Medis</TableHead>
                     <TableHead>Pasien</TableHead>
                     <TableHead>Diagnosis</TableHead>
-                    <TableHead>Tanggal</TableHead>
-                    <TableHead>Status Enkripsi</TableHead>
+                    <TableHead>Tanggal Diagnosis</TableHead>
+                    <TableHead>Dokter</TableHead>
                     <TableHead className="text-right">Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1161,12 +1221,8 @@ export default function HospitalDashboard() {
                         <TableCell className="font-medium">{record.patient?.full_name || record.patient_id?.substring(0,8) || "..."}</TableCell>
                         <TableCell>{record.diagnosis?.description || record.diagnosis_id?.substring(0,8) || "-"}</TableCell>
                         <TableCell>{new Date(record.created_at).toLocaleDateString('id-ID')}</TableCell>
-                        <TableCell>
-                          {record.notes_encrypted ? (
-                            <Badge variant="success" className="text-[10px]">Securely Encrypted</Badge>
-                          ) : (
-                            <Badge variant="secondary" className="text-[10px]">No Notes</Badge>
-                          )}
+                        <TableCell className="text-sm">
+                          {record.attending_doctor?.full_name || "-"}
                         </TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" onClick={() => setSelectedRecord(record)}>Detail</Button>

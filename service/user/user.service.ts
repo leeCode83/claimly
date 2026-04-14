@@ -120,6 +120,21 @@ export class UserService {
             throw err;
         }
 
-        return data;
+        const userData = data as any;
+
+        // Jika role adalah patient, cari patient_id
+        if (userData.role === 'patient') {
+            const { data: patientData } = await this.supabase
+                .from('patients')
+                .select('id')
+                .eq('user_id', userId)
+                .maybeSingle();
+            
+            if (patientData) {
+                userData.patient_id = patientData.id;
+            }
+        }
+
+        return userData;
     }
 }

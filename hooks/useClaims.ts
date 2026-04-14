@@ -39,6 +39,7 @@ export const useClaims = (token?: string | null) => {
         sort_dir?: string;
         status?: string;
         search?: string;
+        patient_policy_id?: string;
     }) => {
         setIsLoading(true);
         try {
@@ -49,6 +50,7 @@ export const useClaims = (token?: string | null) => {
             if (params?.sort_dir) url.searchParams.append("sort_dir", params.sort_dir);
             if (params?.status) url.searchParams.append("status", params.status);
             if (params?.search) url.searchParams.append("search", params.search);
+            if (params?.patient_policy_id) url.searchParams.append("patient_policy_id", params.patient_policy_id);
 
             const response = await fetch(url.toString(), {
                 headers: getHeaders(false),

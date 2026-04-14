@@ -7,16 +7,27 @@ function encodeDate(dateStr: string): number {
 export class MedicalRecordService {
     constructor(private supabase: SupabaseClient) {}
 
-    async getMedicalRecords({ hospitalInstitutionId, patientId, page = 1, limit = 10 }: {
+    async getMedicalRecords({ 
+        hospitalInstitutionId, 
+        patientId, 
+        page = 1, 
+        limit = 10,
+        search,
+        startDate,
+        endDate
+    }: {
         hospitalInstitutionId?: string,
         patientId?: string,
         page?: number,
-        limit?: number
+        limit?: number,
+        search?: string,
+        startDate?: string,
+        endDate?: string
     }) {
         let query = this.supabase
             .from('medical_records')
             .select(
-                '*, diagnosis:diagnoses(icd10_code, description), patient:patients(id, full_name), attending_doctor:users!attending_doctor_id(id, full_name, role), claims:claims(id, status)',
+                'id, patient_id, hospital_institution_id, diagnosis_id, diagnosis_date, created_at, institution:institutions!hospital_institution_id(id, name), diagnosis:diagnoses(icd10_code, description), patient:patients(id, full_name), attending_doctor:users!attending_doctor_id(id, full_name, role), claims:claims(id, status)',
                 { count: 'exact' }
             );
 
@@ -24,10 +35,16 @@ export class MedicalRecordService {
             query = query.eq('hospital_institution_id', hospitalInstitutionId);
         }
 
-        query = query.limit(20);
-
         if (patientId) {
             query = query.eq('patient_id', patientId);
+        }
+
+        // Filter berdasarkan tanggal
+        if (startDate) {
+            query = query.gte('diagnosis_date', startDate);
+        }
+        if (endDate) {
+            query = query.lte('diagnosis_date', endDate);
         }
 
         const from = (page - 1) * limit;
@@ -93,7 +110,7 @@ export class MedicalRecordService {
     async getMedicalRecordById(id: string) {
         const { data, error } = await this.supabase
             .from('medical_records')
-            .select('*, diagnosis:diagnoses(icd10_code, description), patient:patients(id, full_name), attending_doctor:users!attending_doctor_id(id, full_name, role), claims:claims(id, status)')
+            .select('id, patient_id, hospital_institution_id, diagnosis_id, diagnosis_date, attending_doctor_id, notes_encrypted, created_at, institution:institutions!hospital_institution_id(id, name), diagnosis:diagnoses(icd10_code, description), patient:patients(id, full_name), attending_doctor:users!attending_doctor_id(id, full_name, role), claims:claims(id, status)')
             .eq('id', id)
             .single();
 

@@ -86,12 +86,18 @@ export class ProceduresService {
         };
     }
 
-    async getProcedures({ page = 1, limit = 20 }: { page?: number; limit?: number } = {}) {
+    async getProcedures({ page = 1, limit = 20, search = '' }: { page?: number; limit?: number; search?: string } = {}) {
         const offset = (page - 1) * limit;
 
-        const { data, error, count } = await this.supabase
+        let query = this.supabase
             .from('procedures')
-            .select('*', { count: 'exact' })
+            .select('*', { count: 'exact' });
+
+        if (search) {
+            query = query.or(`icd9_code.ilike.%${search}%,description.ilike.%${search}%`);
+        }
+
+        const { data, error, count } = await query
             .order('icd9_code', { ascending: true })
             .range(offset, offset + limit - 1);
 

@@ -28,8 +28,11 @@ export async function GET(
         }
 
         const policies = await patientService.getPatientPolicies(id);
-
-        return NextResponse.json({ data: policies }, { status: 200 });
+        
+        return NextResponse.json({
+            message: "Berhasil mengambil daftar policy pasien",
+            ...policies
+        }, { status: 200 });
 
     } catch (err) {
         const error = err as Error & { status?: number };
@@ -63,6 +66,7 @@ export async function POST(
 
         // Invalidate cache
         await invalidateCache('policies');
+        await redis.del(`patient:${id}`);
 
         return NextResponse.json({
             message: "Data asuransi pasien berhasil ditambahkan",

@@ -26,12 +26,13 @@ export const useProcedures = (token?: string | null) => {
      * Fetch a paginated list of procedures.
      * @param params { page, limit }
      */
-    const getProcedures = useCallback(async (params?: { page?: number; limit?: number }) => {
+    const getProcedures = useCallback(async (params?: { page?: number; limit?: number; search?: string }) => {
         setIsLoading(true);
         try {
             const url = new URL("/api/policies/procedures", window.location.origin);
             if (params?.page) url.searchParams.append("page", params.page.toString());
             if (params?.limit) url.searchParams.append("limit", params.limit.toString());
+            if (params?.search) url.searchParams.append("search", params.search);
 
             const response = await fetch(url.toString(), {
                 headers: getHeaders(false),

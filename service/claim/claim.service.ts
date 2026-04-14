@@ -20,14 +20,16 @@ export class ClaimService {
         sortBy = 'submitted_at',
         sortDir = 'desc',
         status,
-        search
+        search,
+        patient_policy_id
     }: {
         page?: number,
         limit?: number,
         sortBy?: string,
         sortDir?: string,
         status?: string,
-        search?: string
+        search?: string,
+        patient_policy_id?: string
     }) {
         const from = (page - 1) * limit;
         const to = from + limit - 1;
@@ -52,6 +54,11 @@ export class ClaimService {
         // Search berdasarkan deskripsi prosedur (sesuai implementasi sebelumnya)
         if (search) {
             query = query.ilike('procedures.description', `%${search}%`);
+        }
+
+        // Filter berdasarkan patient_policy_id
+        if (patient_policy_id) {
+            query = query.eq('patient_policy_id', patient_policy_id);
         }
 
         const { data, error, count } = await query
