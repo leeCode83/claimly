@@ -24,10 +24,11 @@ export async function GET(request: NextRequest) {
         const sortDir = searchParams.get('sort_dir') || 'desc';
         const status = searchParams.get('status') || undefined;
         const search = searchParams.get('search') || undefined;
+        const patient_policy_id = searchParams.get('patient_policy_id') || undefined;
 
         const claimService = new ClaimService(supabase);
 
-        const cacheKey = `claims:user=${user.id}:inst=${institution_id || 'none'}:page=${page}:limit=${limit}:sort=${sortBy}:${sortDir}:status=${status || 'all'}:search=${search || 'none'}`;
+        const cacheKey = `claims:user=${user.id}:inst=${institution_id || 'none'}:page=${page}:limit=${limit}:sort=${sortBy}:${sortDir}:status=${status || 'all'}:search=${search || 'none'}:policy=${patient_policy_id || 'all'}`;
         const cachedData = await redis.get(cacheKey);
 
         if (cachedData) {
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
             }, { status: 200 });
         }
 
-        const result = await claimService.getClaims({ page, limit, sortBy, sortDir, status, search });
+        const result = await claimService.getClaims({ page, limit, sortBy, sortDir, status, search, patient_policy_id });
 
         // Cache for 5 minutes
         await redis.set(cacheKey, JSON.stringify(result), 'EX', 300);

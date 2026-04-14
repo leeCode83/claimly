@@ -26,12 +26,13 @@ export const useDiagnoses = (token?: string | null) => {
      * Fetch a paginated list of diagnoses.
      * @param params { page, limit }
      */
-    const getDiagnoses = useCallback(async (params?: { page?: number; limit?: number }) => {
+    const getDiagnoses = useCallback(async (params?: { page?: number; limit?: number; search?: string }) => {
         setIsLoading(true);
         try {
             const url = new URL("/api/policies/diagnoses", window.location.origin);
             if (params?.page) url.searchParams.append("page", params.page.toString());
             if (params?.limit) url.searchParams.append("limit", params.limit.toString());
+            if (params?.search) url.searchParams.append("search", params.search);
 
             const response = await fetch(url.toString(), {
                 headers: getHeaders(false),

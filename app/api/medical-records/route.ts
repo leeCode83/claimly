@@ -9,20 +9,34 @@ export async function GET(request: NextRequest) {
         const { supabase, user } = await getSupabaseServer(request);
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-        const { institution_id, errorResponse } = authorizeApiRequest(user, { 
+        const { role, institution_id, errorResponse } = authorizeApiRequest(user, { 
             allowedRoles: ['patient', 'hospital_staff'], 
-            requireInstitution: true 
+            requireInstitution: false 
         });
         if (errorResponse) return errorResponse;
 
+        // Validasi institusi secara spesifik untuk staff
+        if (role === 'hospital_staff' && !institution_id) {
+            return NextResponse.json({ error: 'Forbidden: Akun staff belum terhubung ke instansi' }, { status: 403 });
+        }
+
         const searchParams = request.nextUrl.searchParams;
         const patientId = searchParams.get('patient_id') || undefined;
+        const search = searchParams.get('search') || undefined;
+        const startDate = searchParams.get('startDate') || undefined;
+        const endDate = searchParams.get('endDate') || undefined;
         const limit = parseInt(searchParams.get('limit') || '10');
         const page = parseInt(searchParams.get('page') || '1');
 
         const medicalRecordService = new MedicalRecordService(supabase);
 
-        const cacheKey = `medical-records:inst=${institution_id || 'none'}:patient=${patientId || 'none'}:page=${page}:limit=${limit}`;
+        // Cache key unik per user jika role-nya patient untuk menghindari kebocoran data
+        // Sertakan semua parameter filter dalam cache key
+        const filterStr = `s=${search || ''}:sd=${startDate || ''}:ed=${endDate || ''}`;
+        const cacheKey = role === 'patient'
+            ? `medical-records:user=${user.id}:${filterStr}:page=${page}:limit=${limit}`
+            : `medical-records:inst=${institution_id || 'none'}:patient=${patientId || 'none'}:${filterStr}:page=${page}:limit=${limit}`;
+            
         const cachedData = await redis.get(cacheKey);
 
         if (cachedData) {
@@ -36,6 +50,9 @@ export async function GET(request: NextRequest) {
         const result = await medicalRecordService.getMedicalRecords({ 
             hospitalInstitutionId: institution_id ?? undefined, 
             patientId,
+            search,
+            startDate,
+            endDate,
             limit, 
             page 
         });

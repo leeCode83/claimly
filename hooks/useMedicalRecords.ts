@@ -27,13 +27,23 @@ export const useMedicalRecords = (token?: string | null) => {
      * Fetch a paginated list of medical records.
      * @param params { patient_id, page, limit }
      */
-    const getMedicalRecords = useCallback(async (params?: { patient_id?: string; page?: number; limit?: number }) => {
+    const getMedicalRecords = useCallback(async (params?: { 
+        patient_id?: string; 
+        page?: number; 
+        limit?: number;
+        search?: string;
+        startDate?: string;
+        endDate?: string;
+    }) => {
         setIsLoading(true);
         try {
             const url = new URL("/api/medical-records", window.location.origin);
             if (params?.patient_id) url.searchParams.append("patient_id", params.patient_id);
             if (params?.page) url.searchParams.append("page", params.page.toString());
             if (params?.limit) url.searchParams.append("limit", params.limit.toString());
+            if (params?.search) url.searchParams.append("search", params.search);
+            if (params?.startDate) url.searchParams.append("startDate", params.startDate);
+            if (params?.endDate) url.searchParams.append("endDate", params.endDate);
 
             const response = await fetch(url.toString(), {
                 headers: {

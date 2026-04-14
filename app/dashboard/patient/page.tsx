@@ -57,17 +57,27 @@ import { toast } from "sonner"
 import { useMedicalRecords } from "@/hooks/useMedicalRecords"
 import { useClaims } from "@/hooks/useClaims"
 import { useUsers } from "@/hooks/useUsers"
+import { usePatients } from "@/hooks/usePatients"
 import { useAuthContext } from "@/context/AuthContext"
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from "@/components/ui/select"
 
 export default function PatientDashboard() {
   const { accessToken } = useAuthContext();
   const { getMedicalRecords, getMedicalRecord, decryptMedicalRecord, isLoading: isLoadingRecords } = useMedicalRecords(accessToken);
   const { getClaims, getClaimById, isLoading: isLoadingClaims } = useClaims(accessToken);
   const { getMe } = useUsers(accessToken);
+  const { getPatientPolicies } = usePatients(accessToken);
 
   const [records, setRecords] = useState<any[]>([]);
   const [claims, setClaims] = useState<any[]>([]);
   const [fullUserData, setFullUserData] = useState<any>(null);
+  const [policies, setPolicies] = useState<any[]>([]);
   
   // State for detail modals
   const [selectedRecord, setSelectedRecord] = useState<any>(null);
@@ -81,17 +91,32 @@ export default function PatientDashboard() {
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [decryptedNotes, setDecryptedNotes] = useState<Record<string, string>>({});
 
+  // Filtering state
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [policyFilter, setPolicyFilter] = useState<string>("all");
+
   const loadData = async () => {
     if (!accessToken) return;
     try {
       const [recordsRes, claimsRes, userRes] = await Promise.all([
         getMedicalRecords(),
-        getClaims(),
+        getClaims({
+          status: statusFilter === 'all' ? undefined : statusFilter,
+          patient_policy_id: policyFilter === 'all' ? undefined : policyFilter
+        }),
         getMe()
       ]);
       setRecords(recordsRes.data || []);
       setClaims(claimsRes.data || []);
       setFullUserData(userRes);
+
+      // Load policies if patient_id exists
+      if (userRes?.patient_id) {
+        const policiesRes = await getPatientPolicies(userRes.patient_id);
+        // Pastikan kita mengambil array dari properti data
+        const policiesData = policiesRes?.data;
+        setPolicies(Array.isArray(policiesData) ? policiesData : []);
+      }
     } catch (error) {
       console.error("Gagal memuat data dashboard:", error);
     }
@@ -100,6 +125,26 @@ export default function PatientDashboard() {
   useEffect(() => {
     loadData();
   }, [accessToken]);
+
+  // Refetch claims when filters change
+  useEffect(() => {
+    const refreshClaims = async () => {
+      if (!accessToken) return;
+      try {
+        const claimsRes = await getClaims({
+          status: statusFilter === 'all' ? undefined : statusFilter,
+          patient_policy_id: policyFilter === 'all' ? undefined : policyFilter
+        });
+        setClaims(claimsRes.data || []);
+      } catch (error) {
+        console.error("Gagal memfilter klaim:", error);
+      }
+    };
+    
+    if (fullUserData) {
+      refreshClaims();
+    }
+  }, [statusFilter, policyFilter]);
 
   const handleOpenRecordDetail = async (record: any) => {
     setSelectedRecord(record);
@@ -282,7 +327,8 @@ export default function PatientDashboard() {
                   <TableRow>
                     <TableHead>Rumah Sakit</TableHead>
                     <TableHead>Diagnosis</TableHead>
-                    <TableHead>Tanggal</TableHead>
+                    <TableHead>Tanggal Diagnosis</TableHead>
+                    <TableHead>Dokter</TableHead>
                     <TableHead className="text-right">Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -293,12 +339,13 @@ export default function PatientDashboard() {
                         <TableCell><Skeleton className="h-4 w-[150px]" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-[200px]" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-[120px]" /></TableCell>
                         <TableCell className="text-right"><Skeleton className="h-8 w-16 ml-auto" /></TableCell>
                       </TableRow>
                     ))
                   ) : records.length === 0 ? (
                     <TableRow key="no-records">
-                      <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                         Belum ada riwayat medis yang tercatat.
                       </TableCell>
                     </TableRow>
@@ -310,6 +357,9 @@ export default function PatientDashboard() {
                         </TableCell>
                         <TableCell>{record.diagnosis?.description || "Diagnosis Medis"}</TableCell>
                         <TableCell>{formatDate(record.diagnosis_date)}</TableCell>
+                        <TableCell className="text-sm">
+                          {record.attending_doctor?.full_name || "-"}
+                        </TableCell>
                         <TableCell className="text-right">
                            <Button 
                               variant="ghost" 
@@ -330,10 +380,102 @@ export default function PatientDashboard() {
         </TabsContent>
 
         <TabsContent value="claims" className="space-y-4 animate-in fade-in duration-300">
+          {/* Policy Cards Section */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {Array.isArray(policies) && policies.length > 0 ? (
+              policies.map((policy) => (
+                <Card key={policy.id} className="border-t-4 border-t-primary shadow-sm hover:shadow-md transition-shadow">
+                  <CardHeader className="pb-2">
+                    <div className="flex justify-between items-start">
+                      <CardTitle className="text-lg font-bold text-primary">
+                        {policy.insurance_policies?.policy_name || "Asuransi"}
+                      </CardTitle>
+                      {policy.is_active ? (
+                        <span className="bg-green-100 text-green-800 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">Aktif</span>
+                      ) : (
+                        <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">Tidak Aktif</span>
+                      )}
+                    </div>
+                    <CardDescription className="font-mono text-xs">{policy.policy_number}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-2 border-t mt-2">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium text-[10px] uppercase tracking-tighter">Berlaku Dari</span>
+                        <span className="text-foreground">{formatDate(policy.start_date)}</span>
+                      </div>
+                      <div className="flex flex-col gap-0.5 text-right">
+                        <span className="font-medium text-[10px] uppercase tracking-tighter">Hingga</span>
+                        <span className="text-foreground">{formatDate(policy.end_date)}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            ) : (
+              <Card className="col-span-full border-dashed">
+                <CardContent className="flex flex-col items-center justify-center py-8 text-muted-foreground opacity-60">
+                   <ShieldCheckIcon className="size-10 mb-2" />
+                   <p className="text-sm font-medium">Belum ada polis asuransi terdaftar.</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
            <Card>
-            <CardHeader>
-              <CardTitle>Status Klaim Asuransi</CardTitle>
-              <CardDescription>Pantau proses penggantian biaya kesehatan Anda secara real-time.</CardDescription>
+            <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <CardTitle>Daftar Klaim Saya</CardTitle>
+                <CardDescription>Pantau proses penggantian biaya kesehatan Anda secara real-time.</CardDescription>
+              </div>
+              
+              {/* Filter Bar */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="w-[140px]">
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="h-9 text-xs rounded-xl">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Semua Status</SelectItem>
+                      <SelectItem value="pending">Pending ZKP</SelectItem>
+                      <SelectItem value="submitted">Submitted</SelectItem>
+                      <SelectItem value="approved">Approved</SelectItem>
+                      <SelectItem value="rejected">Rejected</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="w-[180px]">
+                  <Select value={policyFilter} onValueChange={setPolicyFilter}>
+                    <SelectTrigger className="h-9 text-xs rounded-xl">
+                      <SelectValue placeholder="Pilih Polis" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Semua Polis</SelectItem>
+                      {Array.isArray(policies) && policies.map(p => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.insurance_policies?.policy_name || p.policy_number}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {(statusFilter !== 'all' || policyFilter !== 'all') && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-9 px-2 text-[10px] text-muted-foreground hover:text-primary transition-colors"
+                    onClick={() => {
+                      setStatusFilter('all');
+                      setPolicyFilter('all');
+                    }}
+                  >
+                    Reset
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
                <Table>
@@ -360,7 +502,7 @@ export default function PatientDashboard() {
                   ) : claims.length === 0 ? (
                     <TableRow key="no-claims">
                       <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                        Belum ada klaim yang diajukan.
+                        Belum ada klaim yang ditemukan dengan filter ini.
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -382,6 +524,7 @@ export default function PatientDashboard() {
                           <Button 
                             variant="outline" 
                             size="sm"
+                            className="rounded-xl h-8 hover:bg-primary/5 hover:text-primary border-primary/20"
                             onClick={() => handleViewClaimDetail(claim)}
                           >
                             Tinjau
