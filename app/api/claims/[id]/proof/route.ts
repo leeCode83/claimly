@@ -25,13 +25,17 @@ export async function POST(
         const body = await request.json();
 
         const claimService = new ClaimService(supabase);
-        const result = await claimService.submitClaimProof(claimId, body);
+        const data = await claimService.submitClaimProof(claimId, body);
 
         // Invalidate cache
         await redis.del(`claim:${claimId}:proof`);
         await redis.del(`claim:${claimId}`);
+        await invalidateCache('claims');
 
-        return NextResponse.json(result, { status: 200 });
+        return NextResponse.json({
+            message: "Proof berhasil disubmit dan klaim sedang diverifikasi",
+            data
+        }, { status: 200 });
 
     } catch (err) {
         const error = err as Error & { status?: number };

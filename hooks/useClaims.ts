@@ -27,6 +27,28 @@ export const useClaims = (token?: string | null) => {
         if (token) headers["Authorization"] = `Bearer ${token}`;
         return headers;
     };
+ 
+    /**
+     * Helper to wait until claim status is at least 'submitted'.
+     * Used to ensure proof is registered in DB before showing success UI.
+     */
+    const waitForStatusConfirmed = useCallback(async (claimId: string) => {
+        // Simple polling for confirming 'submitted' status
+        const maxRetries = 10;
+        for (let i = 0; i < maxRetries; i++) {
+            const { data, error } = await supabaseBrowser
+                .from('claims')
+                .select('status')
+                .eq('id', claimId)
+                .single();
+            
+            if (!error && data && (data.status === 'submitted' || data.status === 'approved' || data.status === 'rejected')) {
+                return true;
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        return false;
+    }, []);
 
     /**
      * Fetch a paginated list of claims.
@@ -324,26 +346,18 @@ export const useClaims = (token?: string | null) => {
             
             // Phase 3: Submit (Post claim + proof to server)
             setZkpStatus('submitting');
-            const submitResponse = await fetch("/api/claims", {
-                method: "POST",
-                headers: getHeaders(true),
-                body: JSON.stringify({
-                    ...payload,
-                    proof,
-                    public_signals: publicSignals
-                }),
+            const submitResult = await submitClaim({
+                ...payload,
+                proof,
+                public_signals: publicSignals
             });
             
-            const submitResult = await submitResponse.json();
-            
-            if (!submitResponse.ok) {
-                throw new Error(submitResult.error || "Gagal mengirimkan klaim");
-            }
-            
             const claimId = submitResult.data.id;
-
-            // Phase 4: Wait for Asynchronous Verification (Centralized)
-            await waitForVerificationResult(claimId);
+            
+            // Phase 4: Wait for Status Confirmation (ensure DB is updated to 'submitted')
+            await waitForStatusConfirmed(claimId);
+            
+            setZkpStatus('success');
             return submitResult;
             
         } catch (error: any) {
@@ -456,8 +470,13 @@ export const useClaims = (token?: string | null) => {
                 throw new Error(submitResult.error || "Gagal mengirimkan bukti ZKP");
             }
 
-            // Phase 4: Wait for Verification (Centralized)
-            await waitForVerificationResult(claimId);
+            // Using optional chaining and fallback to claimId to prevent crash if data structure varies
+            const finalId = submitResult.data?.claim_id || submitResult.data?.id || claimId;
+            
+            // Phase 4: Wait for Status Confirmation
+            await waitForStatusConfirmed(finalId);
+            
+            setZkpStatus('success');
             return submitResult;
         } catch (error: any) {
             console.error("[useClaims.submitProofForExistingClaim] Error:", error.message);
@@ -505,6 +524,11 @@ export const useClaims = (token?: string | null) => {
         }
     };
 
+    const resetZkpStatus = useCallback(() => {
+        setZkpStatus('idle');
+        setZkpError(null);
+    }, []);
+
     return {
         isLoading,
         zkpStatus,
@@ -517,5 +541,6 @@ export const useClaims = (token?: string | null) => {
         approveClaim,
         rejectClaim,
         verifyClaim,
+        resetZkpStatus,
     };
 };

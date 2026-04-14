@@ -19,7 +19,8 @@ import {
   CodeIcon,
   EyeIcon,
   Copy,
-  XIcon
+  XIcon,
+  ShieldCheckIcon
 } from "lucide-react"
 
 import { usePatients } from "@/hooks/usePatients"
@@ -58,6 +59,13 @@ import {
   CardTitle 
 } from "@/components/ui/card"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   Table,
   TableBody,
   TableCell,
@@ -95,12 +103,12 @@ function Badge({ children, variant = "default", className }: { children: React.R
 
 const zkpStatusMessages: Record<ZkpStatus, string> = {
   idle: "Menunggu pengajuan...",
-  preparing: "Mengambil data persiapan & Merkle Path...",
-  generating: "Komputasi ZKP Proof di browser (mungkin butuh beberapa detik)...",
+  preparing: "Menyiapkan data & Merkle Path...",
+  generating: "Komputasi ZKP Proof di browser...",
   submitting: "Mengirimkan Klaim & Proof ke server...",
-  verifying: "Menunggu verifikasi sistem (Asynchronous MQ)...",
-  success: "Klaim berhasil diverifikasi dan disetujui!",
-  error: "Gagal memproses bukti ZKP atau verifikasi ditolak."
+  verifying: "Verifikasi sistem sedang berjalan...",
+  success: "Klaim & Proof Berhasil Dikirim!",
+  error: "Terjadi kesalahan saat memproses ZKP."
 };
 
 export default function HospitalDashboard() {
@@ -119,17 +127,17 @@ export default function HospitalDashboard() {
   const { getPolicies } = useInsurancePolicies(accessToken)
   const { getMedicalRecords, createMedicalRecord, isLoading: isMedRecLoading } = useMedicalRecords(accessToken)
   const { getDiagnoses } = useDiagnoses(accessToken)
-  const { getProcedures } = useProcedures(accessToken)
+  const { getProcedures, isLoading: isProceduresLoading } = useProcedures(accessToken)
   const { 
     submitClaimWithZkp, 
     submitClaim,
     submitProofForExistingClaim,
     getClaims: getClaimsList, 
     getClaimById: getClaimDetail,
-    verifyClaim,
     zkpStatus, 
     isLoading: isClaimsMutationLoading, 
-    zkpError 
+    zkpError,
+    resetZkpStatus 
   } = useClaims(accessToken)
   
   // State
@@ -164,6 +172,11 @@ export default function HospitalDashboard() {
   
   // Claim State
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  
+  const handleOpenNewClaim = () => {
+    resetZkpStatus();
+    setIsDialogOpen(true);
+  }
   const [formData, setFormData] = useState({
     patient_policy_id: "",
     medical_record_id: "",
@@ -181,6 +194,7 @@ export default function HospitalDashboard() {
   const [isClaimsLoading, setIsClaimsLoading] = useState(false)
   const [claimsPage, setClaimsPage] = useState(1)
   const [claimsTotalPages, setClaimsTotalPages] = useState(1)
+  const [claimStatus, setClaimStatus] = useState<string>("all")
 
   // Medical Records State
   const [medicalRecords, setMedicalRecords] = useState<any[]>([])
@@ -213,6 +227,7 @@ export default function HospitalDashboard() {
   const [isClaimDetailOpen, setIsClaimDetailOpen] = useState(false)
   const [isProofLoading, setIsProofLoading] = useState(false)
   const [isZkpDetailExpanded, setIsZkpDetailExpanded] = useState(false)
+  const [claimDetailZkpStatus, setClaimDetailZkpStatus] = useState<ZkpStatus>('idle')
 
   // Data Loading Helpers
   const loadPatients = async (page = patientPage, search = patientSearch) => {
@@ -252,6 +267,14 @@ export default function HospitalDashboard() {
     }
   }
 
+  const formatIDR = (amount: number) => {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 2,
+    }).format(amount)
+  }
+
   const loadDiagnosesData = async (page = 1, search = diagnosesSearch) => {
     try {
       const res = await getDiagnoses({ page, limit: diagnosesLimit, search } as any)
@@ -276,10 +299,14 @@ export default function HospitalDashboard() {
     }
   }
 
-  const loadLastClaims = async (page = claimsPage) => {
+  const loadLastClaims = async (page = claimsPage, status = claimStatus) => {
     setIsClaimsLoading(true)
     try {
-      const res = await getClaimsList({ page, limit: 10 })
+      const res = await getClaimsList({ 
+        page, 
+        limit: 10,
+        status: status === "all" ? undefined : status 
+      })
       setLastClaims(res.data || [])
       setClaimsTotalPages(res.pagination?.total_pages || 1)
       setClaimsPage(page)
@@ -309,8 +336,9 @@ export default function HospitalDashboard() {
         loadMedicalRecords(recordsPage, recordsStartDate, recordsEndDate)
         if (patients.length === 0) loadPatients(1, "")
         loadDiagnosesData(1, "")
+        loadProcedures(1, procedureLimit, "")
       } else if (activeTab === "claims") {
-        loadLastClaims(claimsPage)
+        loadLastClaims(claimsPage, claimStatus)
         loadMedicalRecords(1) // Needed for selection
         loadProcedures(1, 100, "") // Keep limit high for claim dropdown select
       } else if (activeTab === "policy") {
@@ -318,7 +346,15 @@ export default function HospitalDashboard() {
         loadProcedures(1, procedureLimit, procedureSearch)
       }
     }
-  }, [accessToken, activeTab, patientPage, recordsPage, claimsPage])
+  }, [accessToken, activeTab, patientPage, recordsPage, claimsPage, claimStatus])
+  
+  // Sync ZKP status for claim detail modal
+  useEffect(() => {
+    if (isClaimDetailOpen && selectedClaim?.status === 'pending') {
+      // Sync global zkpStatus (from hook) to our local modal state when working on a pending claim
+      setClaimDetailZkpStatus(zkpStatus);
+    }
+  }, [zkpStatus, isClaimDetailOpen, selectedClaim]);
   
   // Debounce Patient Search
   useEffect(() => {
@@ -340,20 +376,21 @@ export default function HospitalDashboard() {
 
   // Debounce Policy ICD (Diagnoses & Procedures) Search
   useEffect(() => {
-    if (activeTab !== "policy") return;
+    if (activeTab !== "policy" && activeTab !== "records") return;
     const timer = setTimeout(() => {
-      loadDiagnosesData(1, diagnosesSearch);
+      loadDiagnosesData(diagnosesPage, diagnosesSearch);
     }, 500);
     return () => clearTimeout(timer);
-  }, [diagnosesSearch]);
+  }, [diagnosesSearch, diagnosesPage, activeTab]);
 
+  // Debounce Policy ICD (Diagnoses & Procedures) Search
   useEffect(() => {
-    if (activeTab !== "policy") return;
+    if (activeTab !== "policy" && activeTab !== "claims") return;
     const timer = setTimeout(() => {
-      loadProcedures(1, procedureLimit, procedureSearch);
+      loadProcedures(procedurePage, procedureLimit, procedureSearch);
     }, 500);
     return () => clearTimeout(timer);
-  }, [procedureSearch]);
+  }, [procedureSearch, procedurePage, activeTab]);
 
   // Handlers
   const handleCreateRecord = async (e: React.FormEvent) => {
@@ -385,26 +422,38 @@ export default function HospitalDashboard() {
 
       if (withZkp) {
         await submitClaimWithZkp(formData)
+        // Refresh immediately after submission
+        loadLastClaims()
+        setIsDialogOpen(false)
+        resetForm()
       } else {
         await submitClaim({
           ...formData,
           proof: undefined,
           public_signals: undefined
         })
+        loadLastClaims()
+        setIsDialogOpen(false)
+        resetForm()
       }
-
-      loadLastClaims()
-      setIsDialogOpen(false)
-      setFormData({
-        patient_policy_id: "",
-        medical_record_id: "",
-        procedure_id: "",
-        procedure_date: new Date().toISOString().split('T')[0],
-        claim_amount: 0
-      })
     } catch (err) { 
       console.error("Submission failed:", err)
     }
+  }
+
+  const resetForm = () => {
+    setFormData({
+      patient_policy_id: "",
+      medical_record_id: "",
+      procedure_id: "",
+      procedure_date: new Date().toISOString().split('T')[0],
+      claim_amount: 0
+    })
+  }
+
+  const handleResetDetailProgress = () => {
+    setClaimDetailZkpStatus('idle');
+    resetZkpStatus();
   }
 
   const handleMedicalRecordSelect = (mrId: string) => {
@@ -452,6 +501,7 @@ export default function HospitalDashboard() {
     }
 
     try {
+      setClaimDetailZkpStatus('preparing')
       await submitProofForExistingClaim(id, {
         patient_policy_id: patient_policy_id,
         medical_record_id: claim.medical_record_id,
@@ -459,18 +509,18 @@ export default function HospitalDashboard() {
         procedure_date: claim.procedure_date,
         claim_amount: claim.claim_amount
       })
+      
+      setClaimDetailZkpStatus('success')
       loadLastClaims()
-    } catch (err) { }
-  }
-
-  const handleVerifyClaim = async (id: string) => {
-    try {
-      await verifyClaim(id)
-      loadLastClaims() // Refresh list after verification result received
-    } catch (err) {
-      console.error("Manual verification trigger failed:", err)
+      
+      // Re-fetch detail to get fresh data
+      const fullClaim = await getClaimDetail(id)
+      setSelectedClaim(fullClaim)
+    } catch (err) { 
+      setClaimDetailZkpStatus('error')
     }
   }
+
 
   const handleViewClaimDetail = async (claim: any) => {
     const claimId = claim?.claim_id || claim?.id;
@@ -505,6 +555,7 @@ export default function HospitalDashboard() {
       setIsProofLoading(false)
     }
   }
+
 
   const handleRegisterPatient = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1273,7 +1324,13 @@ export default function HospitalDashboard() {
 
         <TabsContent value="claims" className="space-y-6">
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+             <Dialog open={isDialogOpen} onOpenChange={(open) => {
+                setIsDialogOpen(open);
+                if (!open) {
+                  resetZkpStatus();
+                  resetForm();
+                }
+              }}>
                 <DialogTrigger asChild>
                   <Card className="hover:border-primary transition-all cursor-pointer group">
                     <CardHeader>
@@ -1288,16 +1345,21 @@ export default function HospitalDashboard() {
                     </CardContent>
                   </Card>
                 </DialogTrigger>
-                <DialogContent className="sm:max-w-[550px]">
-                  <DialogHeader>
-                    <DialogTitle>Ajukan Klaim Asuransi (ZKP)</DialogTitle>
+                <DialogContent className="sm:max-w-[1100px] w-[95vw] max-h-[90vh] overflow-hidden flex flex-col p-0 border-none shadow-2xl rounded-3xl">
+                  <DialogHeader className="p-6 pb-4 border-b shrink-0 bg-muted/20">
+                    <DialogTitle className="text-2xl font-bold flex items-center gap-3">
+                      <div className="p-2 bg-primary/10 rounded-xl">
+                        <PlusIcon className="size-6 text-primary" />
+                      </div>
+                      Ajukan Klaim Asuransi (ZKP)
+                    </DialogTitle>
                     <DialogDescription>
-                      Proses ini akan men-generate Zero-Knowledge Proof secara lokal di browser Anda.
+                      Proses ini akan men-generate Zero-Knowledge Proof secara lokal di browser Anda untuk menjamin privasi data medis.
                     </DialogDescription>
                   </DialogHeader>
                   
                   {zkpStatus !== 'idle' && zkpStatus !== 'success' && zkpStatus !== 'error' ? (
-                    <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                    <div className="flex-1 flex flex-col items-center justify-center py-12 space-y-4 bg-background">
                       <div className="relative">
                          <Loader2Icon className="size-16 animate-spin text-primary" />
                          <FingerprintIcon className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 size-6 text-primary/50" />
@@ -1308,118 +1370,233 @@ export default function HospitalDashboard() {
                       </div>
                     </div>
                   ) : zkpStatus === 'success' ? (
-                    <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                    <div className="flex-1 flex flex-col items-center justify-center py-12 space-y-4 bg-background">
                        <div className="rounded-full bg-green-100 p-3">
                         <CheckCircle2Icon className="size-12 text-green-600" />
                        </div>
-                       <div className="text-center">
-                        <p className="font-bold text-xl text-green-700">{zkpStatusMessages.success}</p>
-                        <p className="text-sm text-muted-foreground mt-1">Klaim telah berhasil disubmit dan diverifikasi.</p>
-                       </div>
-                       <Button onClick={() => setIsDialogOpen(false)} className="mt-4">Tutup</Button>
-                    </div>
-                  ) : (
-                    <form onSubmit={handleSubmit} className="space-y-4 py-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="medical_record_id">Data Rekam Medis Pasien <span className="text-destructive">*</span></Label>
-                        <select 
-                          id="medical_record_id"
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                          value={formData.medical_record_id}
-                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleMedicalRecordSelect(e.target.value)}
-                          required
-                        >
-                          <option value="" disabled>Pilih Rekam Medis...</option>
-                          {medicalRecords.map((mr, idx) => (
-                            <option key={mr.id || `mr-opt-${idx}`} value={mr.id}>
-                              {mr.patient?.full_name || 'Pasien'} - {mr.diagnosis?.icd10_code || 'Diag'} ({new Date(mr.created_at).toLocaleDateString()})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="patient_policy_id">Polis Asuransi Aktif <span className="text-destructive">*</span></Label>
-                        <select 
-                          id="patient_policy_id"
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-50"
-                          value={formData.patient_policy_id}
-                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFormData({...formData, patient_policy_id: e.target.value})}
-                          disabled={!formData.medical_record_id || patientPolicies.length === 0}
-                          required
-                        >
-                          <option value="" disabled>{patientPolicies.length === 0 ? 'Pilih Rekam Medis Terlebih Dahulu' : 'Pilih Polis Pasien...'}</option>
-                          {patientPolicies.map((pp, idx) => (
-                            <option key={pp.id || `pp-opt-${idx}`} value={pp.id}>
-                              {pp.insurance_policies?.policy_name || 'Asuransi'} - {pp.policy_number}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="procedure_id">Prosedur Medis <span className="text-destructive">*</span></Label>
-                        <select 
-                          id="procedure_id"
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                          value={formData.procedure_id}
-                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-                            const proc = procedures.find(p => p.id === e.target.value)
-                            setFormData({
-                              ...formData, 
-                              procedure_id: e.target.value,
-                              claim_amount: proc?.default_max_coverage || 0
-                            })
-                          }}
-                          required
-                        >
-                          <option value="" disabled>Pilih Prosedur...</option>
-                          {procedures.map((proc) => (
-                            <option key={proc.id} value={proc.id}>
-                              {proc.description} ({proc.icd9_code})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="procedure_date">Tanggal Tindakan <span className="text-destructive">*</span></Label>
-                          <Input 
-                            id="procedure_date" 
-                            type="date"
-                            value={formData.procedure_date} 
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({...formData, procedure_date: e.target.value})}
-                            required
-                          />
+                       <div className="text-center px-6">
+                         <p className="font-bold text-xl text-green-700">{zkpStatusMessages.success}</p>
+                         <p className="text-sm text-muted-foreground mt-1">Klaim telah berhasil dikirim ke server. Verifikasi sedang diproses oleh sistem asuransi.</p>
                         </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="claim_amount">Nominal Klaim (IDR) <span className="text-destructive">*</span></Label>
-                          <Input 
-                            id="claim_amount" 
-                            type="number"
-                            value={formData.claim_amount} 
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({...formData, claim_amount: parseInt(e.target.value) || 0})}
-                            required
-                          />
-                          {formData.procedure_id && (
-                            <p className="text-[10px] text-muted-foreground">Max: IDR {procedures.find(p => p.id === formData.procedure_id)?.default_max_coverage.toLocaleString()}</p>
-                          )}
+                        <Button 
+                          onClick={() => {
+                            setIsDialogOpen(false);
+                            resetZkpStatus();
+                            resetForm();
+                          }} 
+                          className="mt-4 rounded-xl px-8"
+                        >
+                          Tutup
+                        </Button>
+                     </div>
+                  ) : (
+                    <form onSubmit={(e) => handleSubmit(e, true)} className="flex-1 overflow-hidden flex flex-col p-0">
+                      <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-background">
+                        {/* LEFT SECTION: Basic Info */}
+                        <div className="w-full md:w-[380px] border-r bg-muted/5 p-8 overflow-y-auto space-y-8">
+                          <div className="space-y-6">
+                            <div className="flex items-center gap-2 mb-2">
+                              <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shadow-sm">1</div>
+                              <h3 className="font-bold text-sm uppercase tracking-wider text-slate-500">Identity & Policy</h3>
+                            </div>
+
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                <Label htmlFor="medical_record_id" className="text-xs font-bold uppercase text-slate-400">Pilih Rekam Medis <span className="text-destructive">*</span></Label>
+                                <select 
+                                  id="medical_record_id"
+                                  className="flex h-12 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:ring-primary shadow-sm"
+                                  value={formData.medical_record_id}
+                                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleMedicalRecordSelect(e.target.value)}
+                                  required
+                                >
+                                  <option value="" disabled>Pilih Rekam Medis...</option>
+                                  {medicalRecords.map((mr, idx) => (
+                                    <option key={mr.id || `mr-opt-${idx}`} value={mr.id}>
+                                      {mr.patient?.full_name || 'Pasien'} - {mr.diagnosis?.icd10_code || 'Diag'} ({new Date(mr.created_at).toLocaleDateString()})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="space-y-2">
+                                <Label htmlFor="patient_policy_id" className="text-xs font-bold uppercase text-slate-400">Polis Asuransi Aktif <span className="text-destructive">*</span></Label>
+                                <select 
+                                  id="patient_policy_id"
+                                  className="flex h-12 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm disabled:opacity-50 focus:ring-primary shadow-sm"
+                                  value={formData.patient_policy_id}
+                                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFormData({...formData, patient_policy_id: e.target.value})}
+                                  disabled={!formData.medical_record_id || patientPolicies.length === 0}
+                                  required
+                                >
+                                  <option value="" disabled>{patientPolicies.length === 0 ? 'Pilih Rekam Medis Terlebih Dahulu' : 'Pilih Polis Pasien...'}</option>
+                                  {patientPolicies.map((pp, idx) => (
+                                    <option key={pp.id || `pp-opt-${idx}`} value={pp.id}>
+                                      {pp.insurance_policies?.policy_name || 'Asuransi'} - {pp.policy_number}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+
+                            <div className="pt-4 space-y-6">
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shadow-sm">2</div>
+                                <h3 className="font-bold text-sm uppercase tracking-wider text-slate-500">Claim Details</h3>
+                              </div>
+
+                              <div className="space-y-4">
+                                <div className="space-y-2">
+                                  <Label htmlFor="procedure_date" className="text-xs font-bold uppercase text-slate-400">Tanggal Tindakan <span className="text-destructive">*</span></Label>
+                                  <Input 
+                                    id="procedure_date" 
+                                    type="date"
+                                    className="h-12 rounded-xl border-input focus:ring-primary shadow-sm"
+                                    value={formData.procedure_date} 
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({...formData, procedure_date: e.target.value})}
+                                    required
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label htmlFor="claim_amount" className="text-xs font-bold uppercase text-slate-400">Nominal Klaim (IDR) <span className="text-destructive">*</span></Label>
+                                  <Input 
+                                    id="claim_amount" 
+                                    type="text"
+                                    className="h-12 rounded-xl border-input focus:ring-primary shadow-sm"
+                                    value={formatIDR(formData.claim_amount)} 
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                      // Logika ATM-style: ambil semua digit, lalu bagi 100 untuk mendapatkan nilai desimalnya
+                                      // Ini mencegah input membeku dan menangani penghapusan dengan benar
+                                      const digits = e.target.value.replace(/[^0-9]/g, '');
+                                      const numericValue = parseFloat(digits || "0") / 100;
+                                      setFormData({...formData, claim_amount: numericValue});
+                                    }}
+                                    required
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* RIGHT SECTION: Procedure Selection */}
+                        <div className="flex-1 flex flex-col min-w-0 bg-background">
+                          <div className="px-8 py-4 border-b bg-muted/5 flex items-center justify-between shrink-0">
+                            <div className="flex items-center gap-2">
+                              <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shadow-sm">3</div>
+                              <h3 className="font-bold text-sm uppercase tracking-wider text-slate-500">Pilih Prosedur Medis (ICD-9)</h3>
+                            </div>
+                            {formData.procedure_id && (
+                              <Badge variant="success" className="rounded-full animate-in zoom-in duration-300">Terpilih</Badge>
+                            )}
+                          </div>
+
+                          <div className="flex-1 flex flex-col p-8 overflow-hidden">
+                            <div className="relative group mb-4">
+                               <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400 group-focus-within:text-primary transition-colors" />
+                               <Input 
+                                  placeholder="Cari kode atau nama prosedur..." 
+                                  className="h-11 pl-10 rounded-xl bg-muted/30 border-transparent focus:bg-white focus:border-primary transition-all text-sm shadow-inner" 
+                                  value={procedureSearch}
+                                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => { 
+                                    setProcedureSearch(e.target.value); 
+                                    setProcedurePage(1); 
+                                  }}
+                               />
+                            </div>
+
+                            <div className="flex-1 border rounded-2xl overflow-hidden bg-muted/5 flex flex-col shadow-sm">
+                              <div className="overflow-y-auto flex-1">
+                                <Table>
+                                  <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
+                                    <TableRow className="hover:bg-transparent">
+                                      <TableHead className="w-24 text-[10px] font-bold uppercase tracking-wider">Kode</TableHead>
+                                      <TableHead className="text-[10px] font-bold uppercase tracking-wider">Deskripsi</TableHead>
+                                      <TableHead className="w-16 text-right"></TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {isProceduresLoading ? (
+                                      Array.from({ length: 5 }).map((_, i) => (
+                                        <TableRow key={i}>
+                                          <TableCell><Skeleton className="h-4 w-12" /></TableCell>
+                                          <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                                          <TableCell><Skeleton className="h-8 w-8 rounded-full ml-auto" /></TableCell>
+                                        </TableRow>
+                                      ))
+                                    ) : (
+                                      procedures.map((proc) => (
+                                        <TableRow 
+                                          key={proc.id} 
+                                          className={cn(
+                                            "cursor-pointer transition-colors group",
+                                            formData.procedure_id === proc.id ? "bg-primary/10 border-primary/20 hover:bg-primary/20" : "hover:bg-muted/30"
+                                          )}
+                                          onClick={() => {
+                                            setFormData({
+                                              ...formData, 
+                                              procedure_id: proc.id
+                                            })
+                                          }}
+                                        >
+                                          <TableCell className="font-mono text-xs font-bold text-primary">{proc.icd9_code}</TableCell>
+                                          <TableCell className="text-xs font-medium text-slate-700">{proc.description}</TableCell>
+                                          <TableCell className="text-right">
+                                            <div className={cn(
+                                              "size-5 rounded-full border-2 flex items-center justify-center transition-all",
+                                              formData.procedure_id === proc.id ? "bg-primary border-primary" : "border-slate-200 group-hover:border-primary/50"
+                                            )}>
+                                              {formData.procedure_id === proc.id && <div className="size-1.5 bg-white rounded-full" />}
+                                            </div>
+                                          </TableCell>
+                                        </TableRow>
+                                      ))
+                                    )}
+                                  </TableBody>
+                                </Table>
+                              </div>
+
+                              {/* Inner Pagination for Procedures */}
+                              <div className="p-3 border-t bg-white shrink-0">
+                                 <Pagination>
+                                  <PaginationContent>
+                                    <PaginationItem>
+                                      <PaginationPrevious 
+                                        href="#" 
+                                        onClick={(e: React.MouseEvent) => { e.preventDefault(); setProcedurePage(p => Math.max(1, p - 1)) }}
+                                        className={procedurePage === 1 ? "pointer-events-none opacity-50 scale-75" : "scale-75"}
+                                      />
+                                    </PaginationItem>
+                                    <PaginationItem className="text-[11px] font-bold text-slate-500 px-4">
+                                       Halaman {procedurePage}
+                                    </PaginationItem>
+                                    <PaginationItem>
+                                      <PaginationNext 
+                                        href="#" 
+                                        onClick={(e: React.MouseEvent) => { e.preventDefault(); setProcedurePage(p => p + 1) }}
+                                        className={procedures.length < procedureLimit ? "pointer-events-none opacity-50 scale-75" : "scale-75"}
+                                      />
+                                    </PaginationItem>
+                                  </PaginationContent>
+                                </Pagination>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </div>
 
                       {zkpStatus === 'error' && (
-                        <div className="bg-destructive/10 text-destructive p-3 rounded-md flex gap-2 text-sm items-start">
+                        <div className="bg-destructive/10 text-destructive p-3 mx-8 mb-4 rounded-xl flex gap-2 text-sm items-start animate-in fade-in slide-in-from-top-2">
                           <AlertCircleIcon className="size-4 mt-0.5 shrink-0" />
                           <p>{zkpError || "Gagal memproses bukti ZKP."}</p>
                         </div>
                       )}
 
-                      <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
+                      <DialogFooter className="p-4 px-8 border-t bg-muted/10 shrink-0 gap-3">
                         <Button 
                           type="button" 
                           variant="ghost" 
-                          size="sm" 
+                          className="rounded-xl border hover:bg-muted"
                           disabled={isClaimsMutationLoading}
                           onClick={() => setIsDialogOpen(false)}
                         >
@@ -1429,25 +1606,22 @@ export default function HospitalDashboard() {
                           <Button
                             type="button"
                             variant="outline"
-                            size="sm"
-                            className="text-amber-600 border-amber-200 hover:bg-amber-50"
-                            disabled={isClaimsMutationLoading}
+                            className="rounded-xl text-amber-600 border-amber-200 hover:bg-amber-50"
+                            disabled={isClaimsMutationLoading || !formData.procedure_id}
                             onClick={(e: React.MouseEvent) => handleSubmit(e, false)}
                           >
-                            Submit Claim (Tanpa Proof)
+                            Simpan Tanpa ZKP
                           </Button>
-                          <Button 
-                            type="button" 
-                            disabled={isClaimsMutationLoading} 
-                            className="gap-2 bg-primary"
-                            size="sm"
-                            onClick={(e: React.MouseEvent) => handleSubmit(e, true)}
+                          <Button
+                            type="submit"
+                            className="rounded-xl px-8 shadow-lg shadow-primary/20"
+                            disabled={isClaimsMutationLoading || !formData.procedure_id}
                           >
-                            {isClaimsMutationLoading && <Loader2Icon className="size-4 animate-spin" />}
-                            Submit Claim with Proof
+                            {isClaimsMutationLoading ? <Loader2Icon className="size-4 animate-spin mr-2" /> : <ShieldCheckIcon className="size-4 mr-2" />}
+                            Generate & Kirim ZKP
                           </Button>
                         </div>
-                      </div>
+                      </DialogFooter>
                     </form>
                   )}
                 </DialogContent>
@@ -1485,16 +1659,40 @@ export default function HospitalDashboard() {
           </div>
 
           <Card>
-            <CardHeader className="border-b">
-              <CardTitle>Daftar Klaim Terakhir</CardTitle>
-              <CardDescription>Klaim 10 terakhir yang dibuat oleh rumah sakit ini.</CardDescription>
+            <CardHeader className="border-b flex flex-row items-center justify-between space-y-0">
+              <div className="space-y-1">
+                <CardTitle>Daftar Klaim Terakhir</CardTitle>
+                <CardDescription>
+                  {claimStatus === 'all' 
+                    ? "Klaim 10 terakhir yang dibuat oleh rumah sakit ini." 
+                    : `Menampilkan klaim dengan status ${claimStatus.toUpperCase()}.`
+                  }
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="status-filter" className="text-xs font-semibold text-muted-foreground hidden sm:inline">Filter Status:</Label>
+                <Select value={claimStatus} onValueChange={(val) => {
+                  setClaimStatus(val);
+                  setClaimsPage(1); // Reset to first page when filtering
+                }}>
+                  <SelectTrigger id="status-filter" className="w-[140px] h-8 text-xs">
+                    <SelectValue placeholder="Semua Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Semua Status</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="submitted">Submitted</SelectItem>
+                    <SelectItem value="approved">Approved</SelectItem>
+                    <SelectItem value="rejected">Rejected</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </CardHeader>
             <CardContent className="pt-6">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>ID Klaim</TableHead>
-                    <TableHead>ID MedRec</TableHead>
                     <TableHead>Kode ICD-9</TableHead>
                     <TableHead>Nominal</TableHead>
                     <TableHead>Status</TableHead>
@@ -1504,13 +1702,13 @@ export default function HospitalDashboard() {
                 <TableBody>
                   {isClaimsLoading ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-6">
+                      <TableCell colSpan={5} className="text-center py-6">
                         <Loader2Icon className="size-6 animate-spin mx-auto text-primary" />
                       </TableCell>
                     </TableRow>
                   ) : lastClaims.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                         Belum ada riwayat klaim.
                       </TableCell>
                     </TableRow>
@@ -1518,9 +1716,8 @@ export default function HospitalDashboard() {
                     lastClaims.map((claim, idx) => (
                       <TableRow key={claim.claim_id || claim.id || `claim-${idx}`}>
                         <TableCell className="text-xs font-mono">{(claim.claim_id || claim.id)?.substring(0,8) || "..."}...</TableCell>
-                        <TableCell className="text-xs font-mono">{claim.medical_record_id?.substring(0,8) || "-"}</TableCell>
                         <TableCell><Badge variant="outline">{claim.procedure_code || claim.procedures?.icd9_code || claim.icd9_code || "-"}</Badge></TableCell>
-                        <TableCell>IDR {claim.claim_amount.toLocaleString()}</TableCell>
+                        <TableCell className="text-xs font-semibold">{formatIDR(claim.claim_amount)}</TableCell>
                         <TableCell>
                           <Badge variant={
                             claim.status === 'approved' ? 'success' :
@@ -1531,18 +1728,6 @@ export default function HospitalDashboard() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right flex items-center justify-end gap-1 text-xs">
-                          {claim.status === 'submitted' && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 px-2 border-primary/30 text-primary hover:bg-primary/5"
-                              onClick={() => handleVerifyClaim(claim.claim_id || claim.id)}
-                              disabled={isClaimsMutationLoading}
-                            >
-                              {isClaimsMutationLoading ? <Loader2Icon className="size-3 animate-spin"/> : <CheckCircle2Icon className="size-3 mr-1" />}
-                              Verifikasi
-                            </Button>
-                          )}
                           <Button 
                             size="sm" 
                             variant="ghost" 
@@ -1751,7 +1936,10 @@ export default function HospitalDashboard() {
       </Tabs>
 
       {/* Claim Detail Modal */}
-      <Dialog open={isClaimDetailOpen} onOpenChange={setIsClaimDetailOpen}>
+      <Dialog open={isClaimDetailOpen} onOpenChange={(open) => {
+        setIsClaimDetailOpen(open);
+        if (!open) handleResetDetailProgress();
+      }}>
         <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1867,19 +2055,73 @@ export default function HospitalDashboard() {
                </div>
 
                {selectedClaim.status === 'pending' && (
-                 <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-lg space-y-3">
-                    <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
-                      Klaim ini dibuat tanpa bukti (pending). Staf rumah sakit harus men-generate ZKP proof di sisi client untuk melanjutkan proses verifikasi.
-                    </p>
-                    <Button 
-                      className="w-full gap-2 bg-amber-600 hover:bg-amber-700 text-white border-none" 
-                      variant="default"
-                      onClick={() => handleGenerateProofForExisting(selectedClaim)}
-                      disabled={isClaimsMutationLoading}
-                    >
-                      {isClaimsMutationLoading ? <Loader2Icon className="size-4 animate-spin" /> : <FingerprintIcon className="size-4" />}
-                      {isClaimsMutationLoading ? "Memproses Proof..." : "Generate & Kirim ZKP Proof Sekarang"}
-                    </Button>
+                 <div className="space-y-3">
+                   {/* Condition 1: Process is active */}
+                   {claimDetailZkpStatus !== 'idle' && claimDetailZkpStatus !== 'success' && claimDetailZkpStatus !== 'error' && (
+                       <div className="flex flex-col items-center justify-center py-8 space-y-4 border rounded-lg bg-amber-500/5 transition-all animate-in fade-in slide-in-from-bottom-2">
+                           <div className="relative">
+                               <Loader2Icon className="size-12 animate-spin text-amber-600" />
+                               <FingerprintIcon className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 size-4 text-amber-600/50" />
+                           </div>
+                           <div className="text-center space-y-1 px-4">
+                               <p className="font-bold text-sm text-amber-700">
+                                   {zkpStatusMessages[claimDetailZkpStatus] ?? "Memproses..."}
+                               </p>
+                               <p className="text-[10px] text-amber-600/70 border-t border-amber-500/10 pt-1 mt-1">
+                                 Komputasi kriptografi berlangsung di browser Anda. <br/> 
+                                 Jangan tutup modal atau refresh halaman.
+                               </p>
+                           </div>
+                       </div>
+                   )}
+
+                   {/* Condition 2: Success */}
+                   {claimDetailZkpStatus === 'success' && (
+                       <div className="flex flex-col items-center justify-center py-8 space-y-3 border rounded-lg bg-green-500/5 animate-in zoom-in duration-300">
+                           <div className="size-12 rounded-full bg-green-100 flex items-center justify-center">
+                             <CheckCircle2Icon className="size-8 text-green-600" />
+                           </div>
+                           <div className="text-center">
+                             <p className="text-sm font-bold text-green-700">Proof Berhasil Dibuat & Dikirim</p>
+                             <p className="text-[11px] text-green-600/70">Klaim Anda sekarang telah submitted dan sedang diverifikasi.</p>
+                           </div>
+                           <Button size="sm" variant="outline" className="mt-2" onClick={() => { handleResetDetailProgress(); setIsClaimDetailOpen(false); }}>
+                               Tutup Detail
+                           </Button>
+                       </div>
+                   )}
+
+                   {/* Condition 3: Error */}
+                   {claimDetailZkpStatus === 'error' && (
+                       <div className="flex flex-col items-center justify-center py-8 space-y-3 border rounded-lg bg-red-500/5 animate-in shake-in">
+                           <AlertCircleIcon className="size-10 text-red-600" />
+                           <div className="text-center">
+                             <p className="text-sm font-bold text-red-700">Gagal Membuat Proof</p>
+                             <p className="text-[11px] text-red-600/70 px-6">{zkpError || "Terjadi kesalahan internal saat komputasi proof."}</p>
+                           </div>
+                           <Button size="sm" variant="outline" onClick={handleResetDetailProgress}>
+                               Coba Lagi
+                           </Button>
+                       </div>
+                   )}
+
+                   {/* Condition 4: Idle (not started) */}
+                   {claimDetailZkpStatus === 'idle' && (
+                     <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-lg space-y-3">
+                        <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
+                          Klaim ini dibuat tanpa bukti (pending). Staf rumah sakit harus men-generate ZKP proof di sisi client untuk melanjutkan proses verifikasi ke asuransi.
+                        </p>
+                        <Button 
+                          className="w-full gap-2 bg-amber-600 hover:bg-amber-700 text-white border-none shadow-md shadow-amber-600/20 transition-all active:scale-[0.98]" 
+                          variant="default"
+                          onClick={() => handleGenerateProofForExisting(selectedClaim)}
+                          disabled={isClaimsMutationLoading}
+                        >
+                          {isClaimsMutationLoading ? <Loader2Icon className="size-4 animate-spin" /> : <FingerprintIcon className="size-4" />}
+                          {isClaimsMutationLoading ? "Memproses Proof..." : "Generate & Kirim ZKP Proof Sekarang"}
+                        </Button>
+                     </div>
+                   )}
                  </div>
                )}
             </div>

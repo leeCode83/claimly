@@ -98,17 +98,19 @@ describe('ClaimService', () => {
             select: jest.fn().mockReturnThis(),
             single: jest.fn().mockResolvedValue({ data: { id: 'claim-123' }, error: null })
         };
+        const claimsTableMock = {
+            insert: jest.fn().mockReturnValue(mockInsertBuilder),
+            update: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockResolvedValue({ error: null })
+        };
+        const zkpTableMock = {
+            insert: jest.fn().mockResolvedValue({ error: null })
+        };
+
         supabaseMock.from.mockImplementation((table: string) => {
-            if (table === 'claims') {
-                return {
-                    insert: jest.fn().mockReturnValue(mockInsertBuilder),
-                    update: jest.fn().mockReturnThis(),
-                    eq: jest.fn().mockResolvedValue({ error: null })
-                };
-            }
-            if (table === 'zkp_proofs') {
-                return { insert: jest.fn().mockResolvedValue({ error: null }) };
-            }
+            if (table === 'claims') return claimsTableMock;
+            if (table === 'zkp_proofs') return zkpTableMock;
+            
             return { 
                 select: jest.fn().mockReturnThis(),
                 eq: jest.fn().mockReturnThis(),
@@ -220,7 +222,13 @@ describe('ClaimService', () => {
             
             expect(result).toBeDefined();
             expect(result.id).toBe('claim-123');
-            expect(supabaseMock.from).toHaveBeenCalledWith('claims');
+            
+            // Verifikasi status saat insert adalah 'submitted'
+            const claimsTable = supabaseMock.from('claims');
+            expect(claimsTable.insert).toHaveBeenCalledWith(expect.objectContaining({
+                status: 'submitted'
+            }));
+            
             expect((claimService as any).saveProof).toHaveBeenCalled();
         });
 
@@ -231,6 +239,12 @@ describe('ClaimService', () => {
             const result = await claimService.submitClaim(payloadWithoutProof, submitterId);
             
             expect(result.id).toBe('claim-123');
+            
+            // Verifikasi status saat insert adalah 'pending'
+            const claimsTable = supabaseMock.from('claims');
+            expect(claimsTable.insert).toHaveBeenCalledWith(expect.objectContaining({
+                status: 'pending'
+            }));
         });
     });
 
@@ -261,7 +275,7 @@ describe('ClaimService', () => {
                 public_signals: mockPayload.public_signals
             });
 
-            expect(result.message).toContain('berhasil disubmit');
+            expect(result.id).toBe('claim-123');
             expect((claimService as any).saveProof).toHaveBeenCalled();
         });
 

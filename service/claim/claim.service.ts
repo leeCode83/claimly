@@ -158,7 +158,11 @@ export class ClaimService {
              throw err;
         }
 
-        // 3. Insert Data Claim awal dengan status pending
+        // 3. Tentukan status awal berdasarkan ketersediaan proof
+        const hasZkp = !!(payload.proof && payload.public_signals);
+        const initialStatus = hasZkp ? 'submitted' : 'pending';
+
+        // 4. Insert Data Claim
         const { data: claim, error: claimError } = await this.supabase
             .from('claims')
             .insert({
@@ -168,7 +172,7 @@ export class ClaimService {
                 procedure_date: payload.procedure_date,
                 procedure_date_encoded,
                 claim_amount: payload.claim_amount,
-                status: 'pending',
+                status: initialStatus,
                 submitted_by: submittedBy
             })
             .select()
@@ -180,20 +184,25 @@ export class ClaimService {
             throw err;
         }
 
-        // 4. Verifikasi dan Simpan ZKP Proof jika disediakan oleh client
-        if (payload.proof && payload.public_signals) {
-            await this.saveProof(
-                claim.id,
-                {
-                    proof: payload.proof,
-                    public_signals: payload.public_signals,
-                    claim_amount: payload.claim_amount
-                },
-                procedure_date_encoded,
-                policy,
-                procedure
-            );
-            (claim as Claim).status = 'submitted';
+        // 5. Simpan ZKP Proof jika disediakan
+        if (hasZkp) {
+            try {
+                await this.saveProof(
+                    claim.id,
+                    {
+                        proof: payload.proof!,
+                        public_signals: payload.public_signals!,
+                        claim_amount: payload.claim_amount
+                    },
+                    procedure_date_encoded,
+                    policy,
+                    procedure
+                );
+            } catch (err) {
+                // saveProof internal sudah melakukan update status ke 'Fail generate proof'
+                // tapi kita pastikan error dilempar agar client tahu
+                throw err;
+            }
         }
 
         return claim;
@@ -245,10 +254,8 @@ export class ClaimService {
             procedure
         );
 
-        return { 
-            message: "Proof berhasil disubmit dan klaim sedang diverifikasi",
-            claim_id: claim.id 
-        };
+        // Fetch updated claim to return to client
+        return await this.getClaimById(claim.id);
     }
 
     public async getZKPPreparationData(payload: {
