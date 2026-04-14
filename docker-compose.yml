@@ -16,6 +16,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    
+    image: claimly:latest
 
     # Port mapping - accessible dari host
     ports:
@@ -48,6 +50,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
+
+    image: claimly-worker:latest
 
     # Secrets dan config worker juga dibaca dari .env.docker
     env_file:
