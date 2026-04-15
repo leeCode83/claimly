@@ -27,7 +27,7 @@ export class MedicalRecordService {
         let query = this.supabase
             .from('medical_records')
             .select(
-                'id, patient_id, hospital_institution_id, diagnosis_id, diagnosis_date, created_at, institution:institutions!hospital_institution_id(id, name), diagnosis:diagnoses(icd10_code, description), patient:patients(id, full_name), attending_doctor:users!attending_doctor_id(id, full_name, role), claims:claims(id, status)',
+                'id, patient_id, hospital_institution_id, diagnosis_id, diagnosis_date, created_at, notes_encrypted, institution:institutions!hospital_institution_id(id, name), diagnosis:diagnoses(icd10_code, description), patient:patients(id, full_name), attending_doctor:users!attending_doctor_id(id, full_name, role), claims:claims(id, status)',
                 { count: 'exact' }
             );
 
