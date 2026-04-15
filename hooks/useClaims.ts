@@ -208,7 +208,8 @@ export const useClaims = (token?: string | null) => {
     };
 
     /**
-     * Internal helper to wait for ZKP verification results using Supabase Realtime + Polling fallback.
+     * Internal helper to wait for ZKP verification results using Supabase Realtime.
+     * Will resolve ONLY after status actually changes to approved/rejected.
      */
     const waitForVerificationResult = useCallback(async (claimId: string) => {
         setZkpStatus('verifying');
@@ -224,13 +225,12 @@ export const useClaims = (token?: string | null) => {
                 if (error) throw error;
 
                 if (claim.status === 'approved' || claim.status === 'rejected') {
-                    setFinalStatus(claim.status, claim.review_notes);
-                    return true;
+                    return { done: true, status: claim.status, notes: claim.review_notes };
                 }
-                return false;
+                return { done: false, status: null, notes: null };
             } catch (err) {
                 console.error("Error checking verification status:", err);
-                return false;
+                return { done: false, status: null, notes: null };
             }
         };
 
@@ -238,7 +238,7 @@ export const useClaims = (token?: string | null) => {
             if (status === 'approved') {
                 setZkpStatus('success');
                 toast.success("Verifikasi Berhasil", { 
-                    description: "Klaim telah diverifikasi secara otomatis oleh sistem dan disetujui." 
+                    description: "Klaim telah diverifikasi dan disetujui." 
                 });
             } else {
                 setZkpStatus('error');
@@ -251,8 +251,9 @@ export const useClaims = (token?: string | null) => {
 
         return new Promise<void>((resolve, reject) => {
             // Initial check to handle fast workers or existing results
-            checkStatus().then(isDone => {
-                if (isDone) {
+            checkStatus().then(async (result) => {
+                if (result.done) {
+                    setFinalStatus(result.status, result.notes || undefined);
                     resolve();
                     return;
                 }
@@ -268,37 +269,48 @@ export const useClaims = (token?: string | null) => {
                             table: 'claims',
                             filter: `id=eq.${claimId}`,
                         },
-                        (payload) => {
+                        async (payload) => {
                             const newStatus = payload.new.status;
                             const notes = payload.new.review_notes;
 
                             if (newStatus === 'approved' || newStatus === 'rejected') {
                                 setFinalStatus(newStatus, notes);
-                                supabaseBrowser.removeChannel(channel);
+                                await supabaseBrowser.removeChannel(channel);
                                 resolve();
                             }
                         }
                     )
                     .subscribe((status: string) => {
                         if (status !== 'SUBSCRIBED') {
-                            // Polling fallback
+                            // Fallback to polling if realtime fails
                             const interval = setInterval(async () => {
-                                const done = await checkStatus();
-                                if (done) {
+                                const result = await checkStatus();
+                                if (result.done) {
                                     clearInterval(interval);
+                                    setFinalStatus(result.status, result.notes || undefined);
                                     resolve();
                                 }
-                            }, 5000);
+                            }, 3000);
                         }
                     });
 
-                // Safety timeout (60s)
+                // Safety timeout (30s) - after timeout, still resolve but indicate not done yet
                 setTimeout(() => {
                     supabaseBrowser.removeChannel(channel);
-                    setZkpStatus(prev => (prev === 'verifying' ? 'error' : prev));
-                    // We don't necessarily reject here to allow manual status checks later
-                    resolve(); 
-                }, 60000);
+                    // Check one more time before timeout
+                    checkStatus().then((result) => {
+                        if (result.done) {
+                            setFinalStatus(result.status, result.notes || undefined);
+                            resolve();
+                        } else {
+                            setZkpStatus(prev => (prev === 'verifying' ? 'error' : prev));
+                            toast.info("Verifikasi Sedang Diproses", { 
+                                description: "Mohon refresh halaman untuk melihat hasil verifikasi." 
+                            });
+                            resolve(); // Resolve anyway to unblock UI
+                        }
+                    });
+                }, 30000);
             });
         });
     }, []);

@@ -115,57 +115,66 @@ export default function ChatbotPage() {
           </div>
         )}
 
-        <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
+        <CardContent className="flex-1 overflow-y-auto p-4 space-y-3 flex flex-col">
            {messages.map((ms, idx) => (
-             <div key={idx} className={cn(
-               "flex w-max max-w-[85%] flex-col gap-2 rounded-2xl px-4 py-3 text-sm",
-               ms.role === "assistant" 
-                ? "bg-muted text-foreground self-start rounded-tl-none border border-primary/5" 
-                : "bg-primary text-primary-foreground self-end rounded-tr-none shadow-md"
-             )}>
-                <div className="flex items-center gap-2 mb-1 opacity-70">
-                   {ms.role === 'assistant' ? <BotIcon className="size-3.5" /> : <UserIcon className="size-3.5" />}
-                   <span className="font-bold text-[10px] uppercase tracking-wider">{ms.role}</span>
+              <div key={idx} className={cn(
+                "flex w-full",
+                ms.role === "assistant" ? "justify-start" : "justify-end"
+              )}>
+                <div className={cn(
+                  "max-w-[80%] rounded-2xl px-4 py-3 text-sm",
+                  ms.role === "assistant"
+                    ? "bg-muted text-foreground rounded-tl-sm border border-primary/5"
+                    : "bg-primary text-primary-foreground rounded-tr-sm shadow-md"
+                )}>
+                  <div className="flex items-center gap-1.5 mb-1 opacity-60">
+                    {ms.role === 'assistant' ? <BotIcon className="size-3" /> : <UserIcon className="size-3" />}
+                    <span className="font-semibold text-[10px] uppercase tracking-wider">
+                      {ms.role === 'assistant' ? 'Claimly AI' : 'Anda'}
+                    </span>
+                  </div>
+                  <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed">
+                    <ReactMarkdown>{ms.content}</ReactMarkdown>
+                  </div>
                 </div>
-                <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed">
-                  <ReactMarkdown>{ms.content}</ReactMarkdown>
+              </div>
+            ))}
+            
+            {isTyping && (
+              <div className="flex w-full justify-start">
+                <div className="max-w-[80%] rounded-2xl rounded-tl-sm px-4 py-3 text-sm bg-muted text-foreground animate-pulse border border-primary/5">
+                  <div className="flex items-center gap-1.5 mb-1 opacity-60">
+                    <BotIcon className="size-3" />
+                    <span className="font-semibold text-[10px] uppercase tracking-wider">AI Thinking</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="size-1.5 bg-primary/40 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                    <div className="size-1.5 bg-primary/40 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                    <div className="size-1.5 bg-primary/40 rounded-full animate-bounce" />
+                    {statusMessage && <span className="ml-2 text-xs italic text-muted-foreground">{statusMessage}</span>}
+                  </div>
                 </div>
-             </div>
-           ))}
-           
-           {isTyping && (
-             <div className="flex w-max max-w-[80%] flex-col gap-2 rounded-2xl rounded-tl-none px-4 py-3 text-sm bg-muted text-foreground self-start animate-pulse border border-primary/5">
-                <div className="flex items-center gap-2 mb-1 opacity-70">
-                   <BotIcon className="size-3.5" />
-                   <span className="font-bold text-[10px] uppercase tracking-wider">AI Thinking</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="size-1.5 bg-primary/40 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                  <div className="size-1.5 bg-primary/40 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                  <div className="size-1.5 bg-primary/40 rounded-full animate-bounce" />
-                  {statusMessage && <span className="ml-2 text-xs italic text-muted-foreground">{statusMessage}</span>}
-                </div>
-             </div>
-           )}
+              </div>
+            )}
 
-           {status === 'error' && (
-             <div className="flex flex-col items-center justify-center py-8 text-center space-y-3">
-               <div className="size-12 rounded-full bg-destructive/10 flex items-center justify-center">
-                 <AlertCircleIcon className="size-6 text-destructive" />
-               </div>
-               <div className="space-y-1">
-                 <p className="font-medium text-destructive">Koneksi Gagal</p>
-                 <p className="text-xs text-muted-foreground max-w-[250px]">
-                   {statusMessage || "Tidak dapat memulihkan koneksi ke server chatbot."}
-                 </p>
-               </div>
-               <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
-                 Muat Ulang Halaman
-               </Button>
-             </div>
-           )}
+            {status === 'error' && (
+              <div className="flex flex-col items-center justify-center py-8 text-center space-y-3">
+                <div className="size-12 rounded-full bg-destructive/10 flex items-center justify-center">
+                  <AlertCircleIcon className="size-6 text-destructive" />
+                </div>
+                <div className="space-y-1">
+                  <p className="font-medium text-destructive">Koneksi Gagal</p>
+                  <p className="text-xs text-muted-foreground max-w-[250px]">
+                    {statusMessage || "Tidak dapat memulihkan koneksi ke server chatbot."}
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+                  Muat Ulang Halaman
+                </Button>
+              </div>
+            )}
 
-           <div ref={messagesEndRef} />
+            <div ref={messagesEndRef} />
         </CardContent>
         <CardFooter className="border-t p-4 bg-background">
            <form 
