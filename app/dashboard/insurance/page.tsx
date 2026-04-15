@@ -11,7 +11,6 @@ import {
   BookOpenIcon,
   CodeIcon,
   ShieldCheckIcon,
-  UserIcon,
   FileTextIcon,
   AlertCircleIcon,
   PlusIcon,
@@ -717,29 +716,6 @@ export default function InsuranceDashboard() {
               <div className="w-full md:w-[400px] border-r bg-muted/5 p-8 overflow-y-auto space-y-8">
                 <div className="space-y-6">
                     <div className="space-y-2">
-                    <Label className="text-[10px] uppercase font-bold text-muted-foreground/70 tracking-widest pl-1">Identitas Klaim</Label>
-                    <div className="p-4 bg-background rounded-2xl border shadow-sm space-y-3">
-                      <div className="flex items-center gap-3">
-                         <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center">
-                            <UserIcon className="size-5 text-primary" />
-                         </div>
-                         <div>
-                            <div className="font-bold text-sm leading-none">
-                              {selectedClaim.patient_name || selectedClaim.medical_record?.patient?.full_name || ("Pasien " + (selectedClaim.claim_id || selectedClaim.id || "").split('-')[0].toUpperCase())}
-                            </div>
-                            <div className="text-[10px] text-muted-foreground mt-1 font-medium">
-                              Asal: {selectedClaim.institution_name || selectedClaim.medical_record?.institution?.name || "RS Terdaftar"}
-                            </div>
-                         </div>
-                      </div>
-                      <div className="pt-2 border-t flex justify-between items-center text-[11px]">
-                         <span className="text-muted-foreground">ID Klaim:</span>
-                         <span className="font-mono font-bold text-primary">{(selectedClaim.claim_id || selectedClaim.id || "").split('-')[0].toUpperCase()}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
                     <Label className="text-[10px] uppercase font-bold text-muted-foreground/70 tracking-widest pl-1">Target Verifikasi</Label>
                     <div className="p-5 bg-background rounded-2xl border shadow-sm space-y-4">
                        <div className="space-y-1">
@@ -875,47 +851,42 @@ export default function InsuranceDashboard() {
                     </div>
                   </div>
 
-                  <div className="pt-4 flex items-center justify-between gap-6">
-                     <div className="flex-1 p-5 rounded-2xl border-2 border-dashed border-primary/20 bg-primary/5 flex gap-4 text-xs leading-relaxed text-primary/80">
-                        <ShieldCheckIcon className="size-6 shrink-0 mt-1" />
-                        <div>
-                           <p className="font-bold mb-1">Keputusan Adil & Aman</p>
-                           <p>Audit ZKP membuktikan rekam medis sesuai tanpa membocorkan isi catatan medis. Anda hanya perlu menyetujui jika bukti teknis di atas valid.</p>
-                        </div>
-                     </div>
-                      <div className="flex gap-4 p-2 bg-muted/50 rounded-2xl border">
+                  <div className="mt-6 pt-6 border-t border-muted-foreground/10">
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-muted/30 rounded-2xl">
+                      <div className="flex gap-3 w-full sm:w-auto">
                         {selectedClaim.status === 'submitted' && (
                           <Button 
                             variant="secondary"
                             size="lg"
-                            className="h-14 px-8 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold transition-all shadow-md active:scale-95"
+                            className="flex-1 sm:flex-none h-12 px-6 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold transition-all shadow-md active:scale-95"
                             onClick={onVerify}
                             disabled={isProcessing || (selectedClaim.zkp_proofs && (Array.isArray(selectedClaim.zkp_proofs) ? selectedClaim.zkp_proofs[0]?.verification_result !== null : selectedClaim.zkp_proofs?.verification_result !== null))}
                           >
-                            <ShieldCheckIcon className="size-5 mr-2" />
+                            <ShieldCheckIcon className="size-4 mr-2" />
                             {isProcessing || zkpStatus === 'verifying' ? "Verifying..." : "Verify Proof"}
                           </Button>
                         )}
                         <Button 
                           variant="outline" 
                           size="lg" 
-                          className="h-14 px-8 rounded-xl border-destructive/20 text-destructive hover:bg-destructive hover:text-white font-bold transition-all shadow-md active:scale-95"
+                          className="flex-1 sm:flex-none h-12 px-6 rounded-xl border-destructive/30 text-destructive hover:bg-destructive hover:text-white font-bold transition-all shadow-md active:scale-95"
                           onClick={onReject}
                           disabled={isProcessing || selectedClaim.status !== 'submitted'}
                         >
-                          <XCircleIcon className="size-5 mr-2" />
-                          Reject Claim
-                        </Button>
-                        <Button 
-                          size="lg" 
-                          className="h-14 px-12 rounded-xl bg-primary hover:bg-primary/90 font-bold transition-all shadow-lg shadow-primary/20 active:scale-95"
-                          onClick={onApprove}
-                          disabled={isProcessing || selectedClaim.status !== 'submitted' || (selectedClaim.zkp_proofs && (Array.isArray(selectedClaim.zkp_proofs) ? selectedClaim.zkp_proofs[0]?.verification_result !== true : selectedClaim.zkp_proofs?.verification_result !== true))}
-                        >
-                          <CheckCircle2Icon className="size-5 mr-2" />
-                          {isProcessing ? "Processing..." : "Approve Claim"}
+                          <XCircleIcon className="size-4 mr-2" />
+                          Reject
                         </Button>
                       </div>
+                      <Button 
+                        size="lg" 
+                        className="w-full sm:w-auto h-12 px-10 rounded-xl bg-primary hover:bg-primary/90 font-bold transition-all shadow-lg shadow-primary/20 active:scale-95"
+                        onClick={onApprove}
+                        disabled={isProcessing || selectedClaim.status !== 'submitted' || (selectedClaim.zkp_proofs && (Array.isArray(selectedClaim.zkp_proofs) ? selectedClaim.zkp_proofs[0]?.verification_result !== true : selectedClaim.zkp_proofs?.verification_result !== true))}
+                      >
+                        <CheckCircle2Icon className="size-4 mr-2" />
+                        {isProcessing ? "Processing..." : "Approve Claim"}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
