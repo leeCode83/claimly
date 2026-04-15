@@ -23,14 +23,18 @@ export const useInsurancePolicies = (token?: string | null) => {
 
     /**
      * Fetch a paginated list of policies.
-     * @param params { page, limit }
+     * @param params { page, limit, institutionId, isActive }
      */
-    const getPolicies = useCallback(async (params?: { page?: number; limit?: number }) => {
+    const getPolicies = useCallback(async (params?: { page?: number; limit?: number; institutionId?: string; isActive?: boolean }) => {
         setIsLoading(true);
         try {
             const url = new URL("/api/policies", window.location.origin);
             if (params?.page) url.searchParams.append("page", params.page.toString());
             if (params?.limit) url.searchParams.append("limit", params.limit.toString());
+            if (params?.institutionId) url.searchParams.append("institution_id", params.institutionId);
+            if (params?.isActive !== undefined && params?.isActive !== null) {
+                url.searchParams.append("is_active", params.isActive.toString());
+            }
 
             const response = await fetch(url.toString(), {
                 headers: getHeaders(false),

@@ -47,7 +47,7 @@ const formatDate = (dateStr: string) => {
 };
 
 export default function InsuranceDashboard() {
-  const { accessToken } = useAuthContext();
+  const { accessToken, user } = useAuthContext();
   const { getClaims, getClaimById, approveClaim, rejectClaim, verifyClaim, isLoading, zkpStatus } = useClaims(accessToken);
 
   const [allClaims, setAllClaims] = useState<any[]>([]);
@@ -55,10 +55,12 @@ export default function InsuranceDashboard() {
   const [activeSubTab, setActiveSubTab] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [institutionId, setInstitutionId] = useState<string | null>(null);
 
   // Insurance Policies State
   const { 
     getPolicies, 
+    getPolicy,
     createPolicy, 
     updatePolicy, 
     deletePolicy, 
@@ -66,6 +68,12 @@ export default function InsuranceDashboard() {
   } = useInsurancePolicies(accessToken);
   const [insurancePolicies, setInsurancePolicies] = useState<any[]>([]);
   const [policySearchTerm, setPolicySearchTerm] = useState("");
+  
+  // Policy Detail Modal State
+  const [isPolicyDetailModalOpen, setIsPolicyDetailModalOpen] = useState(false);
+  const [policyDetail, setPolicyDetail] = useState<any>(null);
+  const [policyDetailTab, setPolicyDetailTab] = useState("diagnoses");
+  const [policyDetailPage, setPolicyDetailPage] = useState(1);
   
   // Modal states
   const [selectedClaim, setSelectedClaim] = useState<any>(null);
@@ -143,21 +151,32 @@ export default function InsuranceDashboard() {
     loadData();
   }, [accessToken]);
 
+  useEffect(() => {
+    if (user?.institution_id) {
+      setInstitutionId(user.institution_id);
+    }
+  }, [user]);
+
   const loadPolicies = async () => {
     if (!accessToken) return;
+    if (!institutionId) {
+      toast.error("ID Institusi tidak ditemukan. Silakan login ulang.");
+      return;
+    }
     try {
-      const res = await getPolicies();
+      const res = await getPolicies({ institutionId, isActive: undefined });
       setInsurancePolicies(res.data || []);
     } catch (error) {
       console.error("Gagal memuat data polis:", error);
+      toast.error("Gagal memuat data polis");
     }
   };
 
   useEffect(() => {
-    if (activeMainTab === "settings") {
+    if (activeMainTab === "settings" && institutionId) {
       loadPolicies();
     }
-  }, [activeMainTab, accessToken]);
+  }, [activeMainTab, accessToken, institutionId]);
 
   const fetchICDData = async (type: 'diagnoses' | 'procedures', page: number, search: string) => {
     if (!accessToken) return;
@@ -272,10 +291,28 @@ export default function InsuranceDashboard() {
     }
   };
 
-  const confirmDelete = (policy: any) => {
-     setPolicyToDelete(policy);
-     setIsDeleteModalOpen(true);
-  };
+const confirmDelete = (policy: any) => {
+      setPolicyToDelete(policy);
+      setIsDeleteModalOpen(true);
+   };
+
+   const handleDeleteFromDetail = async () => {
+      if (!policyDetail) return;
+      setPolicyToDelete(policyDetail);
+      setIsPolicyDetailModalOpen(false);
+      setIsDeleteModalOpen(true);
+   };
+
+   const handleViewPolicyDetail = async (policy: any) => {
+      try {
+         const fullData = await getPolicy(policy.id);
+         setPolicyDetail(fullData);
+         setIsPolicyDetailModalOpen(true);
+      } catch (err) {
+         console.error("Gagal mengambil detail polis:", err);
+         toast.error("Gagal membuka detail polis");
+      }
+   };
 
   const handleDelete = async () => {
     if (!policyToDelete) return;
@@ -648,6 +685,14 @@ export default function InsuranceDashboard() {
                           </TableCell>
                           <TableCell className="text-right">
                              <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="size-8 rounded-lg text-primary hover:bg-primary/10"
+                                  onClick={() => handleViewPolicyDetail(policy)}
+                                >
+                                  <BookOpenIcon className="size-3.5" />
+                                </Button>
                                 <Button 
                                   variant="ghost" 
                                   size="icon" 
@@ -1180,6 +1225,133 @@ export default function InsuranceDashboard() {
              </Button>
           </DialogFooter>
         </DialogContent>
+      </Dialog>
+
+      {/* Policy Detail Modal */}
+      <Dialog open={isPolicyDetailModalOpen} onOpenChange={(open) => {
+         if (!open) {
+            setPolicyDetail(null);
+         }
+         setIsPolicyDetailModalOpen(open);
+      }}>
+         <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto rounded-3xl">
+            <DialogHeader className="border-b pb-4">
+               <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                     <DialogTitle className="text-xl font-bold flex items-center gap-3">
+                        <div className="p-2 bg-primary/10 rounded-xl">
+                           <BookOpenIcon className="size-5 text-primary" />
+                        </div>
+                        Detail Polis Asuransi
+                     </DialogTitle>
+                     <DialogDescription>
+                        Informasi lengkap mengenai polis dan prosedur yang dicover.
+                     </DialogDescription>
+                  </div>
+                  {policyDetail?.is_active !== undefined && (
+                     <div className={`px-3 py-1.5 rounded-full text-xs font-bold border ${policyDetail.is_active ? 'bg-green-100 text-green-700 border-green-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                        {policyDetail.is_active ? 'Aktif' : 'Non-Aktif'}
+                     </div>
+                  )}
+               </div>
+</DialogHeader>
+            
+            {policyDetail && (
+              <div className="py-6 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4 p-5 bg-muted/30 rounded-2xl border">
+                    <div className="space-y-1">
+                      <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Nama Polis</p>
+                      <p className="font-bold text-lg text-primary">{policyDetail.policy_name}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">ID Polis</p>
+                      <p className="font-mono text-xs text-muted-foreground">{policyDetail.id}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Masa Berlaku</p>
+                      <p className="text-sm font-medium">
+                        {formatDate(policyDetail.valid_from)} - {formatDate(policyDetail.valid_until)}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Max Coverage</p>
+                      <p className="text-2xl font-black text-primary">{formatRupiah(policyDetail.max_coverage_amount)}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <Tabs value={policyDetailTab} onValueChange={(v) => { setPolicyDetailTab(v); setPolicyDetailPage(1); }} className="flex-1 flex flex-col">
+                      <TabsList className="grid w-full grid-cols-2 bg-slate-100/50 p-1 rounded-xl h-10">
+                        <TabsTrigger value="diagnoses" className="text-xs font-bold rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                          ICD-10 Diagnosa ({policyDetail.covered_diagnoses?.length || 0})
+                        </TabsTrigger>
+                        <TabsTrigger value="procedures" className="text-xs font-bold rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                          ICD-9 Prosedur ({policyDetail.covered_procedures?.length || 0})
+                        </TabsTrigger>
+                      </TabsList>
+                      
+                      <TabsContent value="diagnoses" className="flex-1 flex flex-col pt-3 space-y-3">
+                        <div className="flex-1 max-h-[200px] overflow-y-auto border rounded-2xl">
+                          {policyDetail.covered_diagnoses?.length > 0 ? (
+                            <div className="divide-y">
+                              {policyDetail.covered_diagnoses.slice(0, 5).map((item: any, idx: number) => (
+                                <div key={`diag-${idx}`} className="p-3 hover:bg-muted/20">
+                                  <div className="font-mono text-xs font-bold text-primary">{item.icd10_code}</div>
+                                  <div className="text-xs text-muted-foreground line-clamp-2">{item.description}</div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="p-8 text-center text-muted-foreground text-xs">Belum ada diagnosa</div>
+                          )}
+                        </div>
+                      </TabsContent>
+                      
+                      <TabsContent value="procedures" className="flex-1 flex flex-col pt-3 space-y-3">
+                        <div className="flex-1 max-h-[200px] overflow-y-auto border rounded-2xl">
+                          {policyDetail.covered_procedures?.length > 0 ? (
+                            <div className="divide-y">
+                              {policyDetail.covered_procedures.slice(0, 5).map((item: any, idx: number) => (
+                                <div key={`proc-${idx}`} className="p-3 hover:bg-muted/20">
+                                  <div className="font-mono text-xs font-bold text-primary">{item.icd9_code}</div>
+                                  <div className="text-xs text-muted-foreground line-clamp-2">{item.description}</div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="p-4 text-center text-muted-foreground text-xs">Belum ada prosedur</div>
+                          )}
+                        </div>
+                      </TabsContent>
+                    </Tabs>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <DialogFooter className="gap-2 sm:gap-0">
+               <Button 
+                  variant="outline" 
+                  className="border-destructive/30 text-destructive hover:bg-destructive hover:text-white"
+                  onClick={handleDeleteFromDetail}
+               >
+                  <Trash2Icon className="size-4 mr-2" />
+                  Hapus Polis
+               </Button>
+               <Button 
+                  className="bg-primary shadow-lg shadow-primary/20 rounded-xl"
+                  onClick={() => {
+                     openEditModal(policyDetail);
+                     setPolicyDetail(null);
+                     setIsPolicyDetailModalOpen(false);
+                  }}
+               >
+                  <PencilIcon className="size-4 mr-2" />
+                  Edit Polis
+               </Button>
+            </DialogFooter>
+         </DialogContent>
       </Dialog>
     </div>
   )

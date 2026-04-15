@@ -21,8 +21,11 @@ export async function GET(request: NextRequest){
         const searchParams = request.nextUrl.searchParams;
         const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : undefined;
         const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
+        const institutionId = searchParams.get('institution_id') || undefined;
+        const isActiveParam = searchParams.get('is_active');
+        const isActive = isActiveParam === null || isActiveParam === undefined ? true : isActiveParam === 'true';
 
-        const cacheKey = `policies:page=${page || 'default'}:limit=${limit || 'default'}`;
+        const cacheKey = `policies:page=${page || 'default'}:limit=${limit || 'default'}:institutionId=${institutionId || 'default'}:isActive=${isActive}`;
         const cachedData = await redis.get(cacheKey);
 
         if (cachedData) {
@@ -33,7 +36,7 @@ export async function GET(request: NextRequest){
         }
 
         const policyService = new PolicyService(supabase);
-        const result = await policyService.getPolicies({ page, limit });
+        const result = await policyService.getPolicies({ page, limit, institutionId, isActive });
 
         // Cache for 1 hour
         await redis.set(cacheKey, JSON.stringify(result), 'EX', 3600);

@@ -204,6 +204,10 @@ export default function HospitalDashboard() {
   const [recordsPage, setRecordsPage] = useState(1)
   const [recordsTotalPages, setRecordsTotalPages] = useState(1)
   
+  // Medical Records Pagination for Claims Modal
+  const [claimsMRPage, setClaimsMRPage] = useState(1)
+  const [claimsMRTotalPages, setClaimsMRTotalPages] = useState(1)
+  
   const [diagnoses, setDiagnoses] = useState<any[]>([])
   const [diagnosesPage, setDiagnosesPage] = useState(1)
   const [diagnosesTotal, setDiagnosesTotal] = useState(0)
@@ -247,8 +251,8 @@ export default function HospitalDashboard() {
   const loadMedicalRecords = async (page = recordsPage, startDate = recordsStartDate, endDate = recordsEndDate) => {
     setIsRecordsLoading(true)
     try {
-      const res = await getMedicalRecords({ 
-        page, 
+      const res = await getMedicalRecords({
+        page,
         limit: 10,
         startDate: startDate || undefined,
         endDate: endDate || undefined
@@ -259,6 +263,22 @@ export default function HospitalDashboard() {
         setRecordsPage(page)
       } else {
         setMedicalRecords(res || [])
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setIsRecordsLoading(false)
+    }
+  }
+
+  const loadMedicalRecordsForClaim = async (page = 1) => {
+    setIsRecordsLoading(true)
+    try {
+      const res = await getMedicalRecords({ page, limit: 10 })
+      if (res && res.data) {
+        setMedicalRecords(res.data)
+        setClaimsMRTotalPages(res.meta?.total_pages || res.pagination?.total_pages || 1)
+        setClaimsMRPage(page)
       }
     } catch (err) {
       console.error(err)
@@ -308,7 +328,7 @@ export default function HospitalDashboard() {
         status: status === "all" ? undefined : status 
       })
       setLastClaims(res.data || [])
-      setClaimsTotalPages(res.pagination?.total_pages || 1)
+      setClaimsTotalPages(res.meta?.total_pages || 1)
       setClaimsPage(page)
     } catch (err) {
       console.error(err)
@@ -339,7 +359,7 @@ export default function HospitalDashboard() {
         loadProcedures(1, procedureLimit, "")
       } else if (activeTab === "claims") {
         loadLastClaims(claimsPage, claimStatus)
-        loadMedicalRecords(1) // Needed for selection
+        loadMedicalRecordsForClaim(1)
         loadProcedures(1, 100, "") // Keep limit high for claim dropdown select
       } else if (activeTab === "policy") {
         loadDiagnosesData(1, diagnosesSearch)
@@ -1403,7 +1423,7 @@ export default function HospitalDashboard() {
                             <div className="space-y-4">
                               <div className="space-y-2">
                                 <Label htmlFor="medical_record_id" className="text-xs font-bold uppercase text-slate-400">Pilih Rekam Medis <span className="text-destructive">*</span></Label>
-                                <select 
+                                <select
                                   id="medical_record_id"
                                   className="flex h-12 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:ring-primary shadow-sm"
                                   value={formData.medical_record_id}
@@ -1417,6 +1437,31 @@ export default function HospitalDashboard() {
                                     </option>
                                   ))}
                                 </select>
+                                {claimsMRTotalPages > 1 && (
+                                  <div className="flex items-center justify-between pt-2">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 text-[10px]"
+                                      onClick={() => loadMedicalRecordsForClaim(claimsMRPage - 1)}
+                                      disabled={claimsMRPage <= 1}
+                                    >
+                                      {"<"}
+                                    </Button>
+                                    <span className="text-[10px] text-muted-foreground">
+                                      {claimsMRPage} / {claimsMRTotalPages}
+                                    </span>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 text-[10px]"
+                                      onClick={() => loadMedicalRecordsForClaim(claimsMRPage + 1)}
+                                      disabled={claimsMRPage >= claimsMRTotalPages}
+                                    >
+                                      {">"}
+                                    </Button>
+                                  </div>
+                                )}
                               </div>
 
                               <div className="space-y-2">
@@ -2031,12 +2076,46 @@ export default function HospitalDashboard() {
 
                             <div className="space-y-2">
                                <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Public Signals (Inputs)</Label>
-                               <div className="p-3 bg-slate-900 text-green-400 rounded-md border border-green-900/50 font-mono text-[10px] overflow-auto">
-                                  {/* Using public_signals (with underscore) from body response */}
+                               <div className="bg-slate-50 dark:bg-slate-900 rounded-3xl border p-4 shadow-inner">
                                   {claimProofData?.public_signals ? (
-                                    <pre>{JSON.stringify(claimProofData.public_signals, null, 2)}</pre>
+                                     (() => {
+                                       const signals = claimProofData.public_signals;
+                                       if (!signals || signals.length === 0) return <p className="italic py-4 text-center text-muted-foreground text-xs">Public signals kosong.</p>;
+                                       
+                                       const mapping = [
+                                         { id: 0, label: "Procedure Code (ICD-9)", value: signals[0] },
+                                         { id: 1, label: "Procedure Date", value: signals[1], isDate: true },
+                                         { id: 2, label: "Claim Amount", value: signals[2], isCurrency: true },
+                                         { id: 3, label: "Approved Diagnosis Merkle Root Hash", value: signals[3] },
+                                         { id: 4, label: "Approved Procedure Merkle Root Hash", value: signals[4] },
+                                         { id: 5, label: "Max Coverage", value: signals[5], isCurrency: true },
+                                       ];
+
+                                       return (
+                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                           {mapping.map((signal) => (
+                                             <div key={signal.id} className="flex flex-col bg-white dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 transition-all hover:border-primary/40 hover:shadow-md group">
+                                               <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">{signal.label}</span>
+                                               {signal.isCurrency && signal.value && !isNaN(Number(signal.value)) ? (
+                                                 <span className="text-[11px] font-bold text-primary">
+                                                   {formatIDR(Number(signal.value))}
+                                                 </span>
+                                               ) : signal.isDate && signal.value && typeof signal.value === 'string' && signal.value.length === 8 ? (
+                                                 <span className="text-[11px] font-bold text-primary">
+                                                   {`${signal.value.substring(6, 8)}-${signal.value.substring(4, 6)}-${signal.value.substring(0, 4)}`}
+                                                 </span>
+                                               ) : (
+                                                 <span className="text-[11px] font-mono font-medium text-foreground break-all">
+                                                   {signal.value || "-"}
+                                                 </span>
+                                               )}
+                                             </div>
+                                           ))}
+                                         </div>
+                                       );
+                                     })()
                                   ) : (
-                                    <p className="italic text-slate-500">Public signals tidak tersedia.</p>
+                                     <p className="italic text-slate-500">Public signals tidak tersedia.</p>
                                   )}
                                </div>
                             </div>

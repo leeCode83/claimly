@@ -4,14 +4,23 @@ import { buildMerkleTree } from "@/service/zkp";
 export class PolicyService {
     constructor(private supabase: SupabaseClient) {}
 
-    async getPolicies({ page = 1, limit = 20 }: { page?: number; limit?: number } = {}) {
+    async getPolicies({ page = 1, limit = 20, institutionId, isActive }: { page?: number; limit?: number; institutionId?: string; isActive?: boolean } = {}) {
         const offset = (page - 1) * limit;
 
-        const { data, error, count } = await this.supabase
+        let query = this.supabase
             .from('insurance_policies')
             .select('*', { count: 'exact' })
-            .order('created_at', { ascending: false })
-            .range(offset, offset + limit - 1);
+            .order('created_at', { ascending: false });
+
+        if (institutionId) {
+            query = query.eq('insurance_institution_id', institutionId);
+        }
+
+        if (isActive !== undefined && isActive !== null) {
+            query = query.eq('is_active', isActive);
+        }
+
+        const { data, error, count } = await query.range(offset, offset + limit - 1);
 
         if (error) {
             const err: any = new Error(error.message);
@@ -33,7 +42,21 @@ export class PolicyService {
     async getPolicyById(id: string) {
         const { data, error } = await this.supabase
             .from('insurance_policies')
-            .select()
+            .select(`
+                *,
+                policy_covered_diagnoses (
+                    diagnoses (
+                        icd10_code,
+                        description
+                    )
+                ),
+                policy_covered_procedures (
+                    procedures (
+                        icd9_code,
+                        description
+                    )
+                )
+            `)
             .eq('id', id)
             .single();
 
@@ -42,7 +65,24 @@ export class PolicyService {
             err.status = 404;
             throw err;
         }
-        return data;
+
+        const coveredDiagnoses = data.policy_covered_diagnoses?.map((pcd: any) => ({
+            icd10_code: pcd.diagnoses.icd10_code,
+            description: pcd.diagnoses.description
+        })) || [];
+
+        const coveredProcedures = data.policy_covered_procedures?.map((pcp: any) => ({
+            icd9_code: pcp.procedures.icd9_code,
+            description: pcp.procedures.description
+        })) || [];
+
+        const { policy_covered_diagnoses, policy_covered_procedures, ...policyData } = data;
+
+        return {
+            ...policyData,
+            covered_diagnoses: coveredDiagnoses,
+            covered_procedures: coveredProcedures
+        };
     }
 
     async createPolicy(userId: string, payload: any) {

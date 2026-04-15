@@ -271,21 +271,7 @@ export class PatientService {
             throw err;
         }
 
-        // 3. Cek apakah pasien sudah punya polis aktif
-        const { data: existingActive } = await this.supabase
-            .from('patient_policies')
-            .select('id')
-            .eq('patient_id', patientId)
-            .eq('is_active', true)
-            .maybeSingle();
-
-        if (existingActive) {
-            const err: any = new Error("Pasien sudah memiliki polis aktif. Nonaktifkan polis yang lama terlebih dahulu");
-            err.status = 409;
-            throw err;
-        }
-
-        // 4. Generate policy_commitment di backend — JANGAN dari input user
+        // Generate policy_commitment di backend — JANGAN dari input user
         const policy_commitment = await generatePolicyCommitment(
             patientId,
             payload.policy_id,
@@ -293,7 +279,7 @@ export class PatientService {
             payload.start_date
         );
 
-        // 5. Insert ke patient_policies
+        // Insert ke patient_policies
         const { data, error } = await this.supabase
             .from('patient_policies')
             .insert({

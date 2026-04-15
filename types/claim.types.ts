@@ -38,8 +38,23 @@ export interface PatientPolicy {
 
 export interface InsurancePolicy {
     id: string;
+    insurance_institution_id: string;
+    policy_name: string;
+    max_coverage_amount: number;
+    valid_from: string;
+    valid_until: string;
     approved_diagnosis_root: string;
     approved_procedure_root: string;
+    is_active: boolean;
+    created_at: string;
+    covered_diagnoses: {
+        icd10_code: string;
+        description: string;
+    }[];
+    covered_procedures: {
+        icd9_code: string;
+        description: string;
+    }[];
 }
 
 export interface MedicalRecord {

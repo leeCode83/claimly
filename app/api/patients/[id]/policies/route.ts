@@ -67,6 +67,9 @@ export async function POST(
         // Invalidate cache
         await invalidateCache('policies');
         await redis.del(`patient:${id}`);
+        if (patient.user_id) {
+            await invalidateCache(`user-me-policies:${patient.user_id}`);
+        }
 
         return NextResponse.json({
             message: "Data asuransi pasien berhasil ditambahkan",
