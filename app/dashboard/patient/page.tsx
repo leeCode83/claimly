@@ -1,19 +1,20 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { 
-  HistoryIcon, 
-  FileTextIcon, 
-  ShieldCheckIcon, 
-  MessageCircleIcon, 
-  ArrowRightIcon, 
-  LockIcon, 
-  EyeIcon, 
+import {
+  HistoryIcon,
+  FileTextIcon,
+  ShieldCheckIcon,
+  MessageCircleIcon,
+  ArrowRightIcon,
+  LockIcon,
+  EyeIcon,
   SearchIcon,
   BookOpenIcon,
   ChevronDownIcon,
   ChevronUpIcon,
-  CodeIcon
+  CodeIcon,
+  XCircleIcon
 } from "lucide-react"
 import Link from "next/link"
 import { formatRupiah } from "@/lib/utils"
@@ -51,6 +52,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
 
@@ -70,7 +72,7 @@ import {
 export default function PatientDashboard() {
   const { accessToken } = useAuthContext();
   const { getMedicalRecords, getMedicalRecord, decryptMedicalRecord, isLoading: isLoadingRecords } = useMedicalRecords(accessToken);
-  const { getClaims, getClaimById, isLoading: isLoadingClaims } = useClaims(accessToken);
+  const { getClaims, getClaimById, cancelClaim, isLoading: isLoadingClaims } = useClaims(accessToken);
   const { getMe } = useUsers(accessToken);
   const { getPatientPolicies } = usePatients(accessToken);
 
@@ -94,6 +96,12 @@ export default function PatientDashboard() {
   // Filtering state
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [policyFilter, setPolicyFilter] = useState<string>("all");
+
+  // Cancel modal state
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [claimToCancel, setClaimToCancel] = useState<any>(null);
+  const [isCanceling, setIsCanceling] = useState(false);
 
   const loadData = async () => {
     if (!accessToken) return;
@@ -237,6 +245,31 @@ export default function PatientDashboard() {
     }
   };
 
+  const handleOpenCancelModal = (claim: any) => {
+    setClaimToCancel(claim);
+    setCancelReason("");
+    setCancelModalOpen(true);
+  };
+
+  const handleConfirmCancel = async () => {
+    if (cancelReason.length < 10) {
+      toast.error("Alasan pembatalan minimal 10 karakter");
+      return;
+    }
+
+    setIsCanceling(true);
+    try {
+      await cancelClaim(claimToCancel.id, cancelReason);
+      setCancelModalOpen(false);
+      setSelectedClaim(null);
+      loadData();
+    } catch (error) {
+      // Error sudah ditangani di hook
+    } finally {
+      setIsCanceling(false);
+    }
+  };
+
   // Temporary global exposure for debug
   useEffect(() => {
     (window as any).debugViewClaim = handleViewClaimDetail;
@@ -252,6 +285,8 @@ export default function PatientDashboard() {
         return <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">Submitted</span>;
       case 'pending':
         return <span className="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-800">Pending ZKP</span>;
+      case 'canceled':
+        return <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">Canceled</span>;
       default:
         return <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">{status}</span>;
     }
@@ -442,6 +477,7 @@ export default function PatientDashboard() {
                       <SelectItem value="submitted">Submitted</SelectItem>
                       <SelectItem value="approved">Approved</SelectItem>
                       <SelectItem value="rejected">Rejected</SelectItem>
+                      <SelectItem value="canceled">Canceled</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -913,6 +949,24 @@ export default function PatientDashboard() {
                       </div>
                     </div>
                   )}
+
+                  {/* Cancel Button - only show for pending/submitted claims */}
+                  {['pending', 'submitted'].includes(selectedClaim.status) && (
+                    <div className="pt-4 border-t">
+                      <Button
+                        variant="destructive"
+                        onClick={() => {
+                          const claimToStore = selectedClaim;
+                          setSelectedClaim(null);
+                          handleOpenCancelModal(claimToStore);
+                        }}
+                        className="w-full rounded-xl gap-2"
+                      >
+                        <XCircleIcon className="size-4" />
+                        Batalkan Klaim Ini
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -921,6 +975,91 @@ export default function PatientDashboard() {
           <div className="p-4 border-t bg-muted/5 shrink-0 text-center text-muted-foreground">
             <p className="text-[10px] font-medium uppercase tracking-[0.2em]">Verified by Claimly ZKP Protocol • E2E Secured</p>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel Claim Modal */}
+      <Dialog open={cancelModalOpen} onOpenChange={setCancelModalOpen}>
+        <DialogContent className="sm:max-w-[500px] rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <div className="p-2 bg-red-100 rounded-lg">
+                <XCircleIcon className="size-5 text-red-600" />
+              </div>
+              Batalkan Klaim
+            </DialogTitle>
+            <DialogDescription className="text-sm">
+              Apakah Anda yakin ingin membatalkan klaim ini? Tindakan ini tidak dapat dibatalkan.
+            </DialogDescription>
+          </DialogHeader>
+
+          {claimToCancel && (
+            <div className="py-4 space-y-4">
+              <div className="p-4 bg-muted/50 rounded-xl border space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">ID Klaim</span>
+                  <span className="font-mono text-xs">{claimToCancel.id?.split('-')[0].toUpperCase() || "-"}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Nominal</span>
+                  <span className="font-semibold text-primary">{formatRupiah(claimToCancel.claim_amount)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Status</span>
+                  {getStatusBadge(claimToCancel.status)}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="cancelReason" className="text-sm font-medium">
+                  Alasan Pembatalan <span className="text-red-500">*</span>
+                </Label>
+                <Textarea
+                  id="cancelReason"
+                  placeholder="Jelaskan alasan mengapa Anda ingin membatalkan klaim ini (min. 10 karakter)..."
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  rows={4}
+                  className="rounded-xl"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {cancelReason.length < 10
+                    ? `Minimal 10 karakter (${cancelReason.length}/10)`
+                    : `${cancelReason.length} karakter`
+                  }
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setCancelModalOpen(false)}
+              className="rounded-xl"
+              disabled={isCanceling}
+            >
+              Tidak Jadi
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmCancel}
+              className="rounded-xl"
+              disabled={cancelReason.length < 10 || isCanceling}
+            >
+              {isCanceling ? (
+                <>
+                  <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                  Membatalkan...
+                </>
+              ) : (
+                <>
+                  <XCircleIcon className="size-4 mr-2" />
+                  Ya, Batalkan Klaim
+                </>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

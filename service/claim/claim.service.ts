@@ -653,6 +653,67 @@ export class ClaimService {
         return { claim_id: claimId, status: 'rejected' };
     }
 
+    async cancelClaim(claimId: string, patientUserId: string, cancelReason: string) {
+        // 1. Fetch claim with join to patient_policies for ownership validation
+        const { data: claim, error } = await this.supabase
+            .from('claims')
+            .select(`
+                *,
+                patient_policies:patient_policy_id(
+                    patient_id,
+                    patients!inner(user_id)
+                )
+            `)
+            .eq('id', claimId)
+            .single();
+
+        if (error || !claim) {
+            const err = new Error("Claim tidak ditemukan") as AppError;
+            err.status = 404;
+            throw err;
+        }
+
+        // 2. Validate ownership - patient must own this claim
+        const patientPolicy = claim.patient_policies as any;
+        const patientUserIdFromDb = patientPolicy?.patients?.user_id;
+
+        if (patientUserIdFromDb !== patientUserId) {
+            const err = new Error("Unauthorized - bukan pemilik klaim") as AppError;
+            err.status = 403;
+            throw err;
+        }
+
+        // 3. Validate status - can only cancel if pending or submitted
+        if (!['pending', 'submitted'].includes(claim.status)) {
+            const err = new Error(`Klaim berstatus '${claim.status}' tidak dapat dibatalkan`) as AppError;
+            err.status = 400;
+            throw err;
+        }
+
+        // 4. Update status + audit fields
+        const { error: updateError } = await this.supabase
+            .from('claims')
+            .update({
+                status: 'canceled',
+                canceled_by: patientUserId,
+                canceled_at: new Date().toISOString(),
+                cancel_reason: cancelReason
+            })
+            .eq('id', claimId);
+
+        if (updateError) {
+            const err = new Error(`Gagal membatalkan klaim: ${updateError.message}`) as AppError;
+            err.status = 500;
+            throw err;
+        }
+
+        return {
+            claim_id: claimId,
+            status: 'canceled',
+            cancel_reason: cancelReason
+        };
+    }
+
     private async getClaimDependencies(medical_record_id: string, patient_policy_id: string, procedure_id: string) {
         const [mrRes, ppRes, procRes] = await Promise.all([
             this.supabase.from('medical_records')

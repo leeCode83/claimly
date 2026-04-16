@@ -541,6 +541,40 @@ export const useClaims = (token?: string | null) => {
         setZkpError(null);
     }, []);
 
+    /**
+     * Cancel a claim (for patient).
+     * @param claimId Claim UUID
+     * @param cancelReason Reason for cancellation (min 10 chars)
+     */
+    const cancelClaim = async (claimId: string, cancelReason: string) => {
+        setIsLoading(true);
+        try {
+            const response = await fetch(`/api/claims/${claimId}/cancel`, {
+                method: "POST",
+                headers: getHeaders(true),
+                body: JSON.stringify({ cancel_reason: cancelReason }),
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                const message = result.error || "Gagal membatalkan klaim.";
+                toast.error("Gagal Membatalkan Klaim", { description: message });
+                throw new Error(message);
+            }
+
+            toast.success("Klaim Dibatalkan", {
+                description: "Klaim Anda telah berhasil dibatalkan.",
+            });
+
+            return result;
+        } catch (error: any) {
+            throw error;
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     return {
         isLoading,
         zkpStatus,
@@ -554,5 +588,6 @@ export const useClaims = (token?: string | null) => {
         rejectClaim,
         verifyClaim,
         resetZkpStatus,
+        cancelClaim,
     };
 };
