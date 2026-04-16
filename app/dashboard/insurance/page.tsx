@@ -46,16 +46,36 @@ const formatDate = (dateStr: string) => {
   }
 };
 
+// Helper to check if next page should be enabled
+const canGoNext = (page: number, total: number, limit: number) => {
+  if (total === 0) return false;
+  return page < Math.ceil(total / limit);
+};
+
 export default function InsuranceDashboard() {
   const { accessToken, user } = useAuthContext();
   const { getClaims, getClaimById, approveClaim, rejectClaim, verifyClaim, isLoading, zkpStatus } = useClaims(accessToken);
 
   const [allClaims, setAllClaims] = useState<any[]>([]);
   const [activeMainTab, setActiveMainTab] = useState("pending");
-  const [activeSubTab, setActiveSubTab] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [institutionId, setInstitutionId] = useState<string | null>(null);
+
+  // Review Klaim Tab Pagination
+  const [reviewPage, setReviewPage] = useState(1);
+  const [reviewLimit] = useState(10);
+  const [reviewTotal, setReviewTotal] = useState(0);
+
+  // History Tab Pagination & Filter
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyLimit] = useState(10);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyFilter, setHistoryFilter] = useState<string>("all");
+
+  // Separate data for each tab
+  const [reviewClaims, setReviewClaims] = useState<any[]>([]);
+  const [historyClaims, setHistoryClaims] = useState<any[]>([]);
 
   // Insurance Policies State
   const { 
@@ -110,38 +130,35 @@ export default function InsuranceDashboard() {
 
   const loadData = async () => {
     if (!accessToken) return;
+    setIsInitialLoading(true);
     try {
-      // Ambil semua status sekaligus untuk difilter di client
-      // Menggunakan pendekatan fetch terpisah tapi tidak mematikan satu sama lain jika gagal
-      let pending: any[] = [];
-      let approved: any[] = [];
-      let rejected: any[] = [];
+      // Fetch Review Klaim (submitted) with pagination
+      const reviewRes = await getClaims({ status: 'submitted', page: reviewPage, limit: reviewLimit });
+      setReviewClaims(reviewRes.data || []);
+      setReviewTotal(reviewRes.meta?.total || 0);
 
-      // Ambil data secara terpisah untuk reliabilitas maksimal
-      await Promise.all([
-        (async () => {
-           try {
-              const res = await getClaims({ status: 'submitted' });
-              pending = res.data || [];
-           } catch (e) { console.warn("Gagal muat pending:", e); }
-        })(),
-        (async () => {
-           try {
-              const res = await getClaims({ status: 'approved' });
-              approved = res.data || [];
-           } catch (e) { console.warn("Gagal muat approved:", e); }
-        })(),
-        (async () => {
-           try {
-              const res = await getClaims({ status: 'rejected' });
-              rejected = res.data || [];
-           } catch (e) { console.warn("Gagal muat rejected:", e); }
-        })()
+      // Fetch History (approved, rejected, canceled) with pagination
+      const [approvedRes, rejectedRes, canceledRes] = await Promise.all([
+        getClaims({ status: 'approved', page: historyPage, limit: historyLimit }),
+        getClaims({ status: 'rejected', page: historyPage, limit: historyLimit }),
+        getClaims({ status: 'canceled', page: historyPage, limit: historyLimit })
       ]);
 
-      setAllClaims([...pending, ...approved, ...rejected]);
-    } catch (error) {
+      setHistoryClaims([...approvedRes.data, ...rejectedRes.data, ...canceledRes.data]);
+      const totalHistory = (approvedRes.meta?.total || 0) + (rejectedRes.meta?.total || 0) + (canceledRes.meta?.total || 0);
+      setHistoryTotal(totalHistory);
+    } catch (error: any) {
       console.error("Gagal memuat data klaim:", error);
+
+      // Handle "range not satisfiable" error - reset to page 1
+      if (error.message && error.message.includes('range')) {
+        toast.info("Tidak ada lagi data untuk dimuat");
+        if (activeMainTab === 'history') {
+          setHistoryPage(1);
+        } else {
+          setReviewPage(1);
+        }
+      }
     } finally {
       setIsInitialLoading(false);
     }
@@ -149,7 +166,7 @@ export default function InsuranceDashboard() {
 
   useEffect(() => {
     loadData();
-  }, [accessToken]);
+  }, [accessToken, reviewPage, historyPage]);
 
   useEffect(() => {
     if (user?.institution_id) {
@@ -401,21 +418,17 @@ const confirmDelete = (policy: any) => {
     }
   };
 
-  const filteredClaims = allClaims.filter(c => {
-    // API Menggunakan property flat dari service terbaru
+  const filteredClaims = reviewClaims.filter(c => {
     const id = c.claim_id || c.id || "";
-
-    const matchesSearch = 
-      id.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    if (!matchesSearch) return false;
-
-    if (activeSubTab === "all") return true;
-    return c.status === activeSubTab;
+    return id.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
-  const pendingCount = allClaims.filter(c => c.status === 'submitted').length;
-  const historyClaims = allClaims.filter(c => c.status === 'approved' || c.status === 'rejected');
+  const filteredHistoryClaims = historyClaims.filter(c => {
+    const id = c.claim_id || c.id || "";
+    if (!id.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    if (historyFilter === "all") return true;
+    return c.status === historyFilter;
+  });
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -425,6 +438,8 @@ const confirmDelete = (policy: any) => {
         return <span className="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">Rejected</span>;
       case 'submitted':
         return <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">Submitted</span>;
+      case 'canceled':
+        return <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">Canceled</span>;
       default:
         return <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">{status}</span>;
     }
@@ -453,7 +468,6 @@ const confirmDelete = (policy: any) => {
           <TabsTrigger value="pending" className="gap-2 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
             <ShieldAlertIcon className="size-4" />
             Review Klaim
-            {pendingCount > 0 && <span className="ml-1 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{pendingCount}</span>}
           </TabsTrigger>
           <TabsTrigger value="history" className="gap-2 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
             <HistoryIcon className="size-4" />
@@ -473,15 +487,6 @@ const confirmDelete = (policy: any) => {
                   <CardTitle className="text-xl">Antrean Klaim</CardTitle>
                   <CardDescription>Verifikasi data tanpa membuka privasi pasien menggunakan protokol ZKP.</CardDescription>
                 </div>
-                
-                <Tabs value={activeSubTab} onValueChange={setActiveSubTab} className="w-full md:w-auto">
-                  <TabsList className="bg-muted/50 p-1 rounded-lg">
-                    <TabsTrigger value="all" className="text-xs px-3 py-1.5 rounded-md">Semua</TabsTrigger>
-                    <TabsTrigger value="submitted" className="text-xs px-3 py-1.5 rounded-md">Menunggu</TabsTrigger>
-                    <TabsTrigger value="approved" className="text-xs px-3 py-1.5 rounded-md">Disetujui</TabsTrigger>
-                    <TabsTrigger value="rejected" className="text-xs px-3 py-1.5 rounded-md">Ditolak</TabsTrigger>
-                  </TabsList>
-                </Tabs>
               </div>
             </CardHeader>
             <CardContent>
@@ -496,7 +501,7 @@ const confirmDelete = (policy: any) => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {isInitialLoading && allClaims.length === 0 ? (
+                  {isInitialLoading && reviewClaims.length === 0 ? (
                     Array.from({ length: 3 }).map((_, i) => (
                       <TableRow key={`skeleton-${i}`}>
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
@@ -506,7 +511,7 @@ const confirmDelete = (policy: any) => {
                         <TableCell className="text-right"><Skeleton className="h-8 w-20 ml-auto rounded-full" /></TableCell>
                       </TableRow>
                     ))
-                  ) : filteredClaims.length === 0 ? (
+                  ) : reviewClaims.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-20">
                          <div className="flex flex-col items-center gap-2 opacity-30">
@@ -516,7 +521,7 @@ const confirmDelete = (policy: any) => {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredClaims.map((claim, idx) => {
+                    reviewClaims.map((claim, idx) => {
                       if (!claim) return null;
                       const displayId = (claim.claim_id || claim.id || `pending-${idx}`);
                       return (
@@ -536,9 +541,9 @@ const confirmDelete = (policy: any) => {
                             {formatRupiah(claim.claim_amount)}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               className="bg-primary/5 text-primary hover:bg-primary hover:text-white transition-all rounded-full px-5"
                             >
                               Detail
@@ -550,6 +555,33 @@ const confirmDelete = (policy: any) => {
                   )}
                 </TableBody>
               </Table>
+              {/* Pagination for Review Tab */}
+              <div className="flex items-center justify-between px-4 py-3 border-t">
+                <p className="text-xs text-muted-foreground">
+                  Menampilkan {reviewClaims.length} dari {reviewTotal} klaim
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    disabled={reviewPage === 1}
+                    onClick={() => setReviewPage(p => Math.max(1, p - 1))}
+                  >
+                    ← Prev
+                  </Button>
+                  <span className="text-xs font-medium">Halaman {reviewPage}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    disabled={!canGoNext(reviewPage, reviewTotal, reviewLimit)}
+                    onClick={() => setReviewPage(p => p + 1)}
+                  >
+                    Next →
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -557,32 +589,59 @@ const confirmDelete = (policy: any) => {
         <TabsContent value="history" className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <Card className="border-none shadow-xl shadow-primary/5">
             <CardHeader>
-              <CardTitle className="text-xl">Riwayat Keputusan Klaim</CardTitle>
-              <CardDescription>Daftar klaim yang telah Anda proses dalam 30 hari terakhir.</CardDescription>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <CardTitle className="text-xl">Riwayat Keputusan Klaim</CardTitle>
+                  <CardDescription>Daftar klaim yang telah Anda proses.</CardDescription>
+                </div>
+                <Tabs value={historyFilter} onValueChange={(value) => {
+                  setHistoryFilter(value);
+                  setHistoryPage(1);
+                }} className="w-full md:w-auto">
+                  <TabsList className="bg-muted/50 p-1 rounded-lg">
+                    <TabsTrigger value="all" className="text-xs px-3 py-1.5 rounded-md">Semua</TabsTrigger>
+                    <TabsTrigger value="approved" className="text-xs px-3 py-1.5 rounded-md">Disetujui</TabsTrigger>
+                    <TabsTrigger value="rejected" className="text-xs px-3 py-1.5 rounded-md">Ditolak</TabsTrigger>
+                    <TabsTrigger value="canceled" className="text-xs px-3 py-1.5 rounded-md">Dibatalkan</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
             </CardHeader>
             <CardContent>
                <Table>
                 <TableHeader className="bg-muted/50">
                   <TableRow>
                     <TableHead className="font-bold">ID Klaim</TableHead>
-                    <TableHead className="font-bold">Tanggal Proses</TableHead>
+                    <TableHead className="font-bold">Tanggal Keputusan</TableHead>
                     <TableHead className="font-bold text-right">Nominal</TableHead>
                     <TableHead className="font-bold text-right">Status Akhir</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {historyClaims.length === 0 ? (
+                  {isInitialLoading && filteredHistoryClaims.length === 0 ? (
+                    Array.from({ length: 3 }).map((_, i) => (
+                      <TableRow key={`history-skeleton-${i}`}>
+                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                      </TableRow>
+                    ))
+                  ) : filteredHistoryClaims.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-20 opacity-30 italic">Belum ada riwayat klaim.</TableCell>
+                      <TableCell colSpan={4} className="text-center py-20 opacity-30 italic">Belum ada riwayat klaim.</TableCell>
                     </TableRow>
                   ) : (
-                    historyClaims.map((claim, idx) => {
+                    filteredHistoryClaims.map((claim, idx) => {
                       if (!claim) return null;
                       const displayId = (claim.id || claim.claim_id || `history-${idx}`);
+                      const decisionDate = claim.status === 'canceled'
+                        ? claim.canceled_at
+                        : claim.reviewed_at || claim.submitted_at;
                       return (
-                        <TableRow key={displayId}>
+                        <TableRow key={displayId} className="group hover:bg-primary/5 transition-all cursor-pointer border-b" onClick={() => handleViewDetail(claim)}>
                           <TableCell className="font-mono text-xs">{displayId.split('-')[0].toUpperCase()}</TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{formatDate(claim.submitted_at)}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{formatDate(decisionDate)}</TableCell>
                           <TableCell className="font-semibold text-sm text-right">{formatRupiah(claim.claim_amount)}</TableCell>
                           <TableCell className="text-right">
                              {getStatusBadge(claim.status)}
@@ -593,6 +652,33 @@ const confirmDelete = (policy: any) => {
                   )}
                 </TableBody>
               </Table>
+              {/* Pagination for History Tab */}
+              <div className="flex items-center justify-between px-4 py-3 border-t">
+                <p className="text-xs text-muted-foreground">
+                  Menampilkan {filteredHistoryClaims.length} dari {historyTotal} klaim
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    disabled={historyPage === 1}
+                    onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
+                  >
+                    ← Prev
+                  </Button>
+                  <span className="text-xs font-medium">Halaman {historyPage}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    disabled={!canGoNext(historyPage, historyTotal, historyLimit)}
+                    onClick={() => setHistoryPage(p => p + 1)}
+                  >
+                    Next →
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -786,6 +872,15 @@ const confirmDelete = (policy: any) => {
                            <span className="text-sm font-bold text-blue-900">{selectedClaim.patient_policies.insurance_policies?.policy_name}</span>
                         </div>
                         <div className="text-[11px] text-blue-800 font-medium">No Polis: {selectedClaim.patient_policies.policy_number}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedClaim.status === 'canceled' && selectedClaim.cancel_reason && (
+                    <div className="space-y-2">
+                      <Label className="text-[10px] uppercase font-bold text-muted-foreground/70 tracking-widest pl-1">Alasan Pembatalan</Label>
+                      <div className="p-4 bg-red-50 border border-red-100 rounded-2xl">
+                        <p className="text-sm text-red-800 leading-relaxed">{selectedClaim.cancel_reason}</p>
                       </div>
                     </div>
                   )}
